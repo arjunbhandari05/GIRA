@@ -1,7 +1,12 @@
+import {
+  formatPatientMgDl,
+  formatPatientPercent,
+} from "@/lib/patient-display"
 import type { GlucoseInsight } from "@/types/brief"
 
 interface GlucoseProfileProps {
   glucose: GlucoseInsight
+  variant?: "patient" | "clinician"
 }
 
 function StatRow({
@@ -23,56 +28,85 @@ function StatRow({
   )
 }
 
-export default function GlucoseProfile({ glucose }: GlucoseProfileProps) {
+export default function GlucoseProfile({ glucose, variant = "clinician" }: GlucoseProfileProps) {
+  const isPatient = variant === "patient"
+  const fmtPct = (n: number) => (isPatient ? formatPatientPercent(n) : `${n}%`)
+  const fmtMg = (n: number) => (isPatient ? formatPatientMgDl(n) : String(n))
+
   const high = Math.max(0, glucose.time_high_pct)
   const inRange = Math.max(0, glucose.time_in_range_pct)
   const low = Math.max(0, glucose.time_low_pct)
+  const barHigh = isPatient ? Number(high.toFixed(1)) : high
+  const barInRange = isPatient ? Number(inRange.toFixed(1)) : inRange
+  const barLow = isPatient ? Number(low.toFixed(1)) : low
+
+  const peakLabel = isPatient ? "Highest blood sugar reading" : "Peak glucose"
+  const riseLabel = isPatient ? "Blood sugar rise after meals" : "Avg postprandial rise"
+  const cvLabel = isPatient
+    ? "How much your blood sugar fluctuates day to day"
+    : "Glucose variability (CV)"
+  const lowsLabel = isPatient ? "Low blood sugar overnight" : "Nocturnal lows"
+  const dawnLabel = isPatient ? "Early morning blood sugar spike" : "Dawn phenomenon"
 
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-semibold">CGM — 30-day profile</h3>
+      <h3 className="text-sm font-semibold">
+        {isPatient ? "Blood sugar sensor — last 30 days" : "CGM — 30-day profile"}
+      </h3>
       <div className="flex h-2.5 w-full overflow-hidden rounded-full">
         <div
           className="flex items-center justify-center bg-red-500 text-[9px] text-white"
-          style={{ width: `${high}%` }}
-          title={`High ${high}%`}
+          style={{ width: `${barHigh}%` }}
+          title={`High ${fmtPct(high)}`}
         >
-          {high >= 8 ? `${high}%` : ""}
+          {barHigh >= 8 ? fmtPct(high) : ""}
         </div>
         <div
           className="flex items-center justify-center bg-green-600 text-[9px] text-white"
-          style={{ width: `${inRange}%` }}
-          title={`In range ${inRange}%`}
+          style={{ width: `${barInRange}%` }}
+          title={`In range ${fmtPct(inRange)}`}
         >
-          {inRange >= 8 ? `${inRange}%` : ""}
+          {barInRange >= 8 ? fmtPct(inRange) : ""}
         </div>
         <div
           className="flex items-center justify-center bg-amber-500 text-[9px] text-white"
-          style={{ width: `${low}%` }}
-          title={`Low ${low}%`}
+          style={{ width: `${barLow}%` }}
+          title={`Low ${fmtPct(low)}`}
         >
-          {low >= 8 ? `${low}%` : ""}
+          {barLow >= 8 ? fmtPct(low) : ""}
         </div>
       </div>
       <div className="rounded-md border bg-card px-3">
-        <StatRow label="Peak glucose" value={`${glucose.peak_glucose} mg/dL`} tone={glucose.peak_glucose > 180 ? "bad" : undefined} />
-        <StatRow label="Avg postprandial rise" value={`+${glucose.avg_postprandial_rise} mg/dL`} />
-        <StatRow label="Glucose variability (CV)" value={`${glucose.glucose_variability_cv}%`} tone={glucose.glucose_variability_cv > 36 ? "warn" : undefined} />
         <StatRow
-          label="Nocturnal lows"
-          value={glucose.nocturnal_lows ? "Yes" : "No"}
+          label={peakLabel}
+          value={`${fmtMg(glucose.peak_glucose)} mg/dL`}
+          tone={glucose.peak_glucose > 180 ? "bad" : undefined}
+        />
+        <StatRow label={riseLabel} value={`+${fmtMg(glucose.avg_postprandial_rise)} mg/dL`} />
+        <StatRow
+          label={cvLabel}
+          value={isPatient ? fmtPct(glucose.glucose_variability_cv) : fmtPct(glucose.glucose_variability_cv)}
+          tone={glucose.glucose_variability_cv > 36 ? "warn" : undefined}
+        />
+        <StatRow
+          label={lowsLabel}
+          value={glucose.nocturnal_lows ? "Yes — talk with your doctor" : "No"}
           tone={glucose.nocturnal_lows ? "warn" : "good"}
         />
         <StatRow
-          label="Dawn phenomenon"
+          label={dawnLabel}
           value={
             glucose.dawn_phenomenon
-              ? `Present — ${glucose.dawn_phenomenon_days ?? 0}/30 days`
-              : "Absent"
+              ? isPatient
+                ? `Seen on ${glucose.dawn_phenomenon_days ?? 0} of 30 days`
+                : `Present — ${glucose.dawn_phenomenon_days ?? 0}/30 days`
+              : isPatient
+                ? "Not seen in this period"
+                : "Absent"
           }
         />
       </div>
-      {glucose.interpretation ? (
+      {glucose.interpretation && !isPatient ? (
         <p className="text-xs text-muted-foreground">{glucose.interpretation}</p>
       ) : null}
     </section>

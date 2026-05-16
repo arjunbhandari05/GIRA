@@ -431,3 +431,37 @@
 .live-chart-panel--delayed {
   animation-delay: 0.6s;
 }
+
+@keyframes followup-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.followup-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(232, 230, 240, 0.55) 0%,
+    rgba(249, 248, 252, 0.95) 45%,
+    rgba(232, 230, 240, 0.55) 100%
+  );
+  background-size: 200% 100%;
+  animation: followup-shimmer 1.4s ease-in-out infinite;
+}
+
+.followup-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #c4c1d4 transparent;
+}
+
+.followup-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.followup-scroll::-webkit-scrollbar-thumb {
+  background-color: #c4c1d4;
+  border-radius: 999px;
+}

@@ -5,6 +5,8 @@ import { Loader2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import ViewToggle from "@/components/brief/ViewToggle"
 import SafetyBanner from "@/components/brief/SafetyBanner"
+import PatientSafetyBanner from "@/components/brief/PatientSafetyBanner"
+import PatientBriefReveal from "@/components/brief/PatientBriefReveal"
 import ClinicianView from "@/components/brief/ClinicianView"
 import PatientView from "@/components/brief/PatientView"
 import { getAgentBrief, getIntake, listPatients } from "@/lib/api"
@@ -201,12 +203,23 @@ export default function BriefInferencePanel({
         {toggleVisible ? <ViewToggle view={view} onChange={setView} /> : null}
       </header>
 
-      <SafetyBanner flags={brief.safety_flags} />
-
       {activeView === "clinician" ? (
-        <ClinicianView brief={brief} patient={patient} />
+        <>
+          <SafetyBanner flags={brief.safety_flags} />
+          <ClinicianView brief={brief} patient={patient} />
+        </>
       ) : (
-        <PatientView brief={brief} patient={patient} />
+        <>
+          <PatientBriefReveal index={0}>
+            <PatientSafetyBanner flags={brief.safety_flags} />
+          </PatientBriefReveal>
+          <PatientView
+            brief={brief}
+            patient={patient}
+            apiRecommendation={apiBrief?.recommendation}
+            staggerStart={1}
+          />
+        </>
       )}
     </div>
   )

@@ -11,11 +11,14 @@ import {
   uploadPatientWearable,
   type PatientAssets,
 } from "@/lib/api"
+import PatientWearableConnect from "../patient-wearable-connect"
 
 interface SetupTabProps {
   patientId: string
   patientName: string
   onAssetsUpdated?: () => void
+  /** Bump Live Metrics refresh when patient connects devices on Setup */
+  onDevicesUpdated?: () => void
   /** Patient-facing copy vs clinician workspace */
   audience?: "patient" | "provider"
 }
@@ -97,6 +100,7 @@ export default function SetupTab({
   patientId,
   patientName,
   onAssetsUpdated,
+  onDevicesUpdated,
   audience = "provider",
 }: SetupTabProps) {
   const isPatient = audience === "patient"
@@ -185,6 +189,16 @@ export default function SetupTab({
         </div>
       )}
 
+      {isPatient && (
+        <PatientWearableConnect
+          patientId={patientId}
+          onConnectionChange={() => {
+            onDevicesUpdated?.()
+            onAssetsUpdated?.()
+          }}
+        />
+      )}
+
       <div className="border border-[#E8E6F0] rounded-lg bg-white p-5 space-y-4">
         <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Checklist</p>
         <StatusRow label="Genome" done={a.genome} hint="23andMe raw .txt" />
@@ -230,7 +244,7 @@ export default function SetupTab({
 
       <p className="text-[12px] text-[#9895A8]">
         {isPatient
-          ? "Live metrics appear on the Live Metrics tab after WHOOP and CGM files are uploaded."
+          ? "Connect devices above or upload files below. Live metrics appear on the Live Metrics tab once data is available."
           : "You can also edit intake manually on the Intake tab. Metrics appear on the Metrics tab after WHOOP and CGM files are uploaded."}
       </p>
     </div>

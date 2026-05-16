@@ -1,38 +1,56 @@
 import type { Recommendation, SafetyFlag, TrialMatch, WearableInsight } from "@/types/brief"
+import type { PatientRecommendationKind } from "@/lib/patient-display"
+import { friendlyGenePlain, patientPlainDrugName } from "@/lib/patient-display"
 
 interface NextStepsProps {
   recommendation: Recommendation
   flags: SafetyFlag[]
   wearable: WearableInsight
   trials: TrialMatch[]
+  recommendationKind?: PatientRecommendationKind
 }
 
-export default function NextSteps({ recommendation, flags, wearable, trials }: NextStepsProps) {
-  const steps: string[] = [
-    `Talk to your doctor about switching to ${recommendation.drug_name}.`,
-  ]
+export default function NextSteps({
+  recommendation,
+  flags,
+  wearable,
+  trials,
+  recommendationKind = "switch",
+}: NextStepsProps) {
+  const drug = patientPlainDrugName(recommendation.drug_name)
+  const steps: string[] = []
+
+  if (recommendationKind === "continue") {
+    steps.push("Talk with your doctor about whether staying on your current plan still makes sense for you.")
+  } else if (recommendationKind === "switch") {
+    steps.push(`Ask your doctor whether ${drug} could be a better fit — do not change medicines on your own.`)
+  } else {
+    steps.push("Ask your doctor what other information they need before suggesting a medication change.")
+  }
 
   for (const f of flags.filter((x) => x.severity === "flag")) {
     if (f.gene === "SLCO1B1") {
       steps.push(
-        "Make sure your doctor knows certain cholesterol medications may not be safe for you based on your DNA."
+        "Tell your doctor that some cholesterol medicines may not be the safest choice for you based on your DNA."
       )
+    } else if (f.gene === "SLC22A1") {
+      steps.push("Mention that your DNA can affect how your body handles metformin.")
     } else {
-      steps.push(`Tell your doctor about your ${friendlyGene(f.gene)} result (${f.impact}).`)
+      steps.push(`Bring up ${friendlyGenePlain(f.gene)} — your doctor can explain what it means for you.`)
     }
   }
 
   if (wearable.deep_sleep_pct < 20 || wearable.sleep_score_pct < 60) {
-    steps.push("Focus on sleep: consistent bedtime, less screen time before bed, and 7–8 hours nightly.")
+    steps.push("Focus on sleep: a regular bedtime, less screen time at night, and about 7–8 hours when you can.")
   } else if (wearable.avg_hrv_ms < 30) {
-    steps.push("Add stress recovery: short walks, breathing exercises, and lighter training days when worn down.")
+    steps.push("Add gentle stress recovery: short walks, calm breathing, and easier days when you feel worn down.")
   } else {
-    steps.push("Stay active with moderate daily movement to support blood sugar and recovery.")
+    steps.push("Keep up moderate daily movement — it supports blood sugar and recovery.")
   }
 
   if (trials.length > 0) {
     steps.push(
-      "Ask your doctor if you might qualify for a clinical trial. There may be studies nearby specifically for people with your genetic profile."
+      "Ask whether a research study near you might be a fit. Your doctor can explain the pros and cons in plain language."
     )
   }
 
@@ -53,15 +71,4 @@ export default function NextSteps({ recommendation, flags, wearable, trials }: N
       </ol>
     </section>
   )
-}
-
-function friendlyGene(gene: string) {
-  const map: Record<string, string> = {
-    SLC22A1: "metformin absorption gene",
-    SLCO1B1: "cholesterol medication gene",
-    CYP2C19: "blood thinner gene",
-    VKORC1: "warfarin sensitivity gene",
-    TCF7L2: "diabetes risk gene",
-  }
-  return map[gene] || gene
 }

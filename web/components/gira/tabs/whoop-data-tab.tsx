@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState } from "react"
 import { Heart, Activity, Droplet, TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react"
 import { getGlucose, getWearable } from "@/lib/api"
 import { wearableTrendToUi } from "@/lib/mappers"
+import {
+  formatPatientBpm,
+  formatPatientMgDl,
+  formatPatientMs,
+  formatPatientPercent,
+  formatPatientWowPct,
+} from "@/lib/patient-display"
 import LiveMetricValue from "../live-metric-value"
 import MetricAreaChart from "../metric-area-chart"
 import RecoveryWeekChart, { type RecoverySummary } from "../recovery-week-chart"
@@ -36,7 +43,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
   const [glucoseData, setGlucoseData] = useState<{ day: number; value: number }[]>([])
   const [recoveryData, setRecoveryData] = useState<{ score: number }[]>([])
   const [recoverySummary, setRecoverySummary] = useState<RecoverySummary | null>(null)
-  const [metricBases, setMetricBases] = useState<{ hrv?: number; glucose?: number }>({})
+  const [metricBases, setMetricBases] = useState<{ hrv?: number; glucose?: number; rhr?: number }>({})
   const [insight, setInsight] = useState<string | null>(null)
 
   useEffect(() => {
@@ -78,49 +85,60 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         const gWow = glucose.trend_delta_mgdl as number | undefined
 
         const hrvBase = hrv.avg_30d != null ? Number(hrv.avg_30d) : undefined
-        const glucoseBase = gAvg != null ? Math.round(gAvg) : undefined
-        setMetricBases({ hrv: hrvBase, glucose: glucoseBase })
+        const rhrBase = rhr.avg_30d != null ? Number(rhr.avg_30d) : undefined
+        const glucoseBase = gAvg != null ? Number(gAvg) : undefined
+        setMetricBases({ hrv: hrvBase, glucose: glucoseBase, rhr: rhrBase })
 
         const recoveryAvg = recovery.avg_30d != null ? Number(recovery.avg_30d) : null
+        const fmt = liveMode
         setRecoverySummary({
           value:
             recoveryAvg != null
-              ? Number.isInteger(recoveryAvg)
-                ? String(recoveryAvg)
-                : recoveryAvg.toFixed(1)
+              ? fmt
+                ? formatPatientPercent(recoveryAvg).replace("%", "")
+                : Number.isInteger(recoveryAvg)
+                  ? String(recoveryAvg)
+                  : recoveryAvg.toFixed(1)
               : "—",
           unit: "/100",
           trend: wearableTrendToUi(recovery.trend),
-          change: `${recovery.wow_pct ?? 0}%`,
+          change: fmt ? formatPatientWowPct(recovery.wow_pct) : `${recovery.wow_pct ?? 0}%`,
           status: (recoveryAvg ?? 0) < 50 ? "Low" : "Normal",
         })
 
         setMetrics([
           {
             label: "Heart Rate Variability",
-            value: hrvBase != null ? String(Math.round(hrvBase)) : "—",
+            value: hrvBase != null ? (fmt ? formatPatientMs(hrvBase) : String(Math.round(hrvBase))) : "—",
             unit: "ms",
             trend: wearableTrendToUi(hrv.trend),
-            change: `${hrv.wow_pct != null && hrv.wow_pct > 0 ? "+" : ""}${hrv.wow_pct ?? 0}%`,
+            change: fmt
+              ? formatPatientWowPct(hrv.wow_pct)
+              : `${hrv.wow_pct != null && hrv.wow_pct > 0 ? "+" : ""}${hrv.wow_pct ?? 0}%`,
             icon: Activity,
             status: hrv.trend === "improving" ? "Good" : "Normal",
           },
           {
             label: "Resting Heart Rate",
-            value: rhr.avg_30d != null ? String(rhr.avg_30d) : "—",
+            value: rhrBase != null ? (fmt ? formatPatientBpm(rhrBase) : String(rhr.avg_30d)) : "—",
             unit: "bpm",
             trend: wearableTrendToUi(rhr.trend),
-            change: `${rhr.wow_pct ?? 0}%`,
+            change: fmt ? formatPatientWowPct(rhr.wow_pct) : `${rhr.wow_pct ?? 0}%`,
             icon: Heart,
             status: "Normal",
           },
           {
             label: "Blood Glucose (CGM)",
-            value: glucoseBase != null ? String(glucoseBase) : "—",
+            value: glucoseBase != null ? (fmt ? formatPatientMgDl(glucoseBase) : String(Math.round(glucoseBase))) : "—",
             unit: "mg/dL",
             trend:
               gTrend === "improving" ? "down" : gTrend === "worsening" ? "up" : "stable",
-            change: gWow != null ? `${gWow > 0 ? "+" : ""}${gWow} mg/dL` : "—",
+            change:
+              gWow != null
+                ? fmt
+                  ? `${gWow > 0 ? "+" : ""}${formatPatientMgDl(gWow)} mg/dL`
+                  : `${gWow > 0 ? "+" : ""}${gWow} mg/dL`
+                : "—",
             icon: Droplet,
             status:
               gAvg != null && gAvg > 140
@@ -150,10 +168,20 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
 
         const parts: string[] = []
         if (glucose.time_in_range_pct != null) {
-          parts.push(`CGM TIR ${glucose.time_in_range_pct}% (GET /glucose/${patientId}).`)
+          if (liveMode) {
+            parts.push(
+              `About ${formatPatientPercent(Number(glucose.time_in_range_pct))} of your recent readings were in your target range.`
+            )
+          } else {
+            parts.push(`CGM TIR ${glucose.time_in_range_pct}% (GET /glucose/${patientId}).`)
+          }
         }
         if (whoop.hypoglycemia_signal) {
-          parts.push("Wearable hypoglycemia pattern detected — discuss with patient.")
+          parts.push(
+            liveMode
+              ? "Your wearable noticed a possible low-blood-sugar pattern — mention this at your next visit."
+              : "Wearable hypoglycemia pattern detected — discuss with patient."
+          )
         }
         setInsight(parts.join(" ") || null)
       } catch (e) {
@@ -165,7 +193,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
     return () => {
       cancelled = true
     }
-  }, [patientId, refreshKey])
+  }, [patientId, refreshKey, liveMode])
 
   const topMetrics = useMemo(
     () => metrics.filter((m) => !m.label.includes("Recovery")),
@@ -216,7 +244,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {topMetrics.map((metric) => {
           const Icon = metric.icon
-          const isHrv = metric.label.includes("Variability")
+          const isRhr = metric.label.includes("Resting Heart")
           const isGlucose = metric.label.includes("Glucose")
           const liveOpts = { valueIntervalMs: LIVE_VALUE_MS, pulseIntervalMs: LIVE_PULSE_MS }
           return (
@@ -229,12 +257,13 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
                 {metric.label}
               </p>
               <div className="flex items-baseline gap-1 flex-wrap">
-                {showLiveCards && isHrv ? (
+                {showLiveCards && isRhr ? (
                   <LiveMetricValue
-                    base={metricBases.hrv}
+                    base={metricBases.rhr}
                     enabled
                     unit={metric.unit}
-                    jitter={1}
+                    jitter={0.5}
+                    decimals={1}
                     liveOptions={liveOpts}
                   />
                 ) : showLiveCards && isGlucose ? (
@@ -243,6 +272,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
                     enabled
                     unit={metric.unit}
                     jitter={3}
+                    decimals={1}
                     liveOptions={liveOpts}
                   />
                 ) : (
@@ -292,7 +322,11 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
       )}
 
       {recoveryData.length > 0 && recoverySummary && (
-        <RecoveryWeekChart data={recoveryData} summary={recoverySummary} />
+        <RecoveryWeekChart
+          data={recoveryData}
+          summary={recoverySummary}
+          layout={liveMode ? "bars" : "heatmap"}
+        />
       )}
     </div>
   )

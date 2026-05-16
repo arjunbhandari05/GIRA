@@ -2,31 +2,21 @@
 
 import { useEffect, useState } from "react"
 import {
-  Calendar,
-  LogOut,
-  Loader2,
-  Clock,
-  Pill,
   Activity,
-  FolderOpen,
+  Calendar,
   FileText,
+  FolderOpen,
+  Loader2,
+  LogOut,
 } from "lucide-react"
 import BriefInferencePanel from "@/components/brief/BriefInferencePanel"
 import {
   getAgentBrief,
-  getIntake,
-  getPatientAssets,
   getSafetyFlags,
   listPatients,
 } from "@/lib/api"
 import { formatAppointment } from "@/lib/mappers"
-import {
-  DEFAULT_HEALTH_MARKERS,
-  estimateMonthlyCost,
-  healthMarkersFromBrief,
-  intakeMedications,
-  plainMedicationChangeSentence,
-} from "@/lib/patient-plain"
+import PatientHomeTab from "./patient-home-tab"
 import SetupTab from "./tabs/setup-tab"
 import PatientMetricsTab from "./tabs/patient-metrics-tab"
 
@@ -42,50 +32,30 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
   const [name, setName] = useState("Patient")
   const [appointment, setAppointment] = useState("")
   const [hasBrief, setHasBrief] = useState(false)
-  const [safetyFlags, setSafetyFlags] = useState(0)
-  const [meds, setMeds] = useState<{ name: string; dose: string; frequency: string }[]>([])
-  const [changeSentence, setChangeSentence] = useState<string | null>(null)
-  const [switchDrug, setSwitchDrug] = useState<string | null>(null)
-  const [switchCost, setSwitchCost] = useState<number | null>(null)
-  const [markers, setMarkers] = useState<string[]>(DEFAULT_HEALTH_MARKERS)
-  const [trialHint, setTrialHint] = useState(false)
+  const [safetyAlert, setSafetyAlert] = useState(false)
   const [tab, setTab] = useState<Tab>("home")
+  const [metricsRefreshKey, setMetricsRefreshKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true)
       try {
-        const [rows, flags, briefRes, intakeRes] = await Promise.all([
+        const [rows, flags, briefRes] = await Promise.all([
           listPatients(),
           getSafetyFlags(patientId),
           getAgentBrief(patientId, { cacheOnly: true }).catch(() => null),
-          getIntake(patientId).catch(() => null),
         ])
         if (cancelled) return
         const row = rows.find((r) => r.patient_id === patientId)
         setName(row?.name || patientId)
         setAppointment(formatAppointment(row?.next_appointment_iso, patientId))
-        setSafetyFlags(flags.length)
-
-        const intakeMeds = intakeMedications(intakeRes?.intake)
-        setMeds(intakeMeds)
+        setSafetyAlert(flags.length > 0)
 
         const briefOk = Boolean(
           briefRes && !briefRes.error && (briefRes.cached || briefRes.snp_summary?.length)
         )
         setHasBrief(briefOk)
-
-        if (briefOk && briefRes) {
-          setChangeSentence(plainMedicationChangeSentence(briefRes))
-          const start = briefRes.recommendation?.start
-          if (start) {
-            setSwitchDrug(start)
-            setSwitchCost(estimateMonthlyCost(start))
-          }
-          setMarkers(healthMarkersFromBrief(briefRes))
-          setTrialHint((briefRes.trial_matches?.length ?? 0) > 0)
-        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -161,136 +131,23 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
             patientId={patientId}
             patientName={name}
             audience="patient"
+            onDevicesUpdated={() => setMetricsRefreshKey((k) => k + 1)}
           />
         )}
-        {tab === "metrics" && <PatientMetricsTab patientId={patientId} />}
-
-        {tab === "home" && !hasBrief && (
-          <>
-            <div>
-              <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#0D0B14]">
-                Hello, {firstName}
-              </h1>
-              <p className="text-[15px] text-[#6B6778] mt-1">
-                {appointment ? `Next visit: ${appointment}` : "Your appointment will appear here"}
-              </p>
-            </div>
-
-            <div className="border border-[#E8E6F0] rounded-lg p-5 flex gap-4 bg-[#FAFAFC]">
-              <Calendar className="w-5 h-5 text-[#5B3FD4] shrink-0" />
-              <div>
-                <p className="font-semibold text-[15px]">{appointment || "Upcoming appointment"}</p>
-                <p className="text-[13px] text-[#9895A8]">Your clinic visit is on the calendar</p>
-              </div>
-            </div>
-
-            <div className="border-l-[3px] border-l-[#5B3FD4] border border-[#E8E6F0] rounded-lg p-4 flex gap-3">
-              <Clock className="w-5 h-5 text-[#5B3FD4] shrink-0" />
-              <p className="text-[14px] text-[#6B6778]">
-                Waiting for your care team to generate your brief. No clinical details are shown until
-                then.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setTab("setup")}
-              className="text-[13px] text-[#5B3FD4] font-medium"
-            >
-              Go to Setup →
-            </button>
-          </>
+        {tab === "metrics" && (
+          <PatientMetricsTab patientId={patientId} refreshKey={metricsRefreshKey} />
         )}
 
-        {tab === "home" && hasBrief && (
-          <>
-            <div>
-              <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#0D0B14]">
-                Hello, {firstName}
-              </h1>
-              <p className="text-[15px] text-[#6B6778] mt-1">
-                {appointment ? `Next visit: ${appointment}` : "Your summary is ready"}
-              </p>
-            </div>
-
-            {safetyFlags > 0 && (
-              <div className="border border-[#F59E0B] bg-[#FFFBEB] rounded-lg p-4 text-[14px] text-[#6B6778]">
-                Your care team has flagged something about your current medications. This will be
-                discussed at your appointment.
-              </div>
-            )}
-
-            <section className="space-y-3">
-              <p className="text-[11px] font-semibold uppercase text-[#9895A8]">Your medications</p>
-              {meds.length === 0 ? (
-                <p className="text-[14px] text-[#9895A8]">Medication list will appear from your chart.</p>
-              ) : (
-                meds.map((m) => {
-                  const cost = estimateMonthlyCost(m.name)
-                  return (
-                    <div key={m.name} className="border border-[#E8E6F0] rounded-lg p-5 bg-white">
-                      <p className="text-[22px] font-semibold text-[#0D0B14]">{m.name}</p>
-                      <p className="text-[14px] text-[#6B6778] mt-1">
-                        {m.dose} · {m.frequency}
-                      </p>
-                      {cost != null && (
-                        <p className="text-[13px] text-[#9895A8] mt-2">About ${cost}/month</p>
-                      )}
-                    </div>
-                  )
-                })
-              )}
-            </section>
-
-            {changeSentence && (
-              <div className="border-l-[3px] border-l-[#5B3FD4] border border-[#E8E6F0] rounded-lg p-4">
-                <p className="text-[14px] text-[#0D0B14] font-medium">{changeSentence}</p>
-              </div>
-            )}
-
-            {switchDrug && (
-              <div className="border border-[#E8E6F0] rounded-lg p-5 bg-[#FAFAFC]">
-                <p className="text-[11px] font-semibold uppercase text-[#9895A8] mb-2">
-                  A change may be coming
-                </p>
-                <p className="text-[18px] font-semibold text-[#0D0B14]">{switchDrug}</p>
-                {switchCost != null && (
-                  <p className="text-[13px] text-[#6B6778] mt-1">About ${switchCost}/month</p>
-                )}
-                <p className="text-[13px] text-[#9895A8] mt-3">
-                  Your doctor will discuss this at your appointment.
-                </p>
-              </div>
-            )}
-
-            <section>
-              <p className="text-[11px] font-semibold uppercase text-[#9895A8] mb-3">
-                Health markers to watch
-              </p>
-              <ul className="space-y-2">
-                {markers.map((m) => (
-                  <li key={m} className="flex items-center gap-2 text-[15px] text-[#0D0B14]">
-                    <Pill className="w-4 h-4 text-[#1A9E6E]" />
-                    {m}
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            {trialHint && (
-              <div className="border-l-[3px] border-l-[#5B3FD4] border border-[#E8E6F0] rounded-lg p-4 text-[14px] text-[#6B6778]">
-                A research study near you may be a fit. Ask your doctor.
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setTab("brief")}
-              className="w-full bg-[#5B3FD4] text-white rounded-lg py-3 text-[14px] font-medium hover:bg-[#4A32B0] transition-colors"
-            >
-              Open your full medication brief
-            </button>
-          </>
+        {tab === "home" && (
+          <PatientHomeTab
+            patientId={patientId}
+            firstName={firstName}
+            appointment={appointment}
+            hasBrief={hasBrief}
+            safetyAlert={safetyAlert}
+            onNavigate={setTab}
+            metricsRefreshKey={metricsRefreshKey}
+          />
         )}
 
         <p className="text-[11px] text-[#C4C1D4] text-center pt-4">
