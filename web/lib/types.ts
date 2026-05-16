@@ -135,6 +135,7 @@ export interface AgentBrief {
   cached?: boolean
   error?: string
   _trace?: TraceStep[]
+  _timing?: RunTimingSummary
   _backend?: string
   _llm_model?: string
 }
@@ -142,6 +143,8 @@ export interface AgentBrief {
 export interface TraceStep {
   tool: string
   step?: number
+  step_kind?: "tool" | "llm"
+  duration_ms?: number
   args_summary?: Record<string, unknown>
   result_summary?: Record<string, unknown>
   status?: string
@@ -151,10 +154,20 @@ export interface TraceStep {
   plan_fallback?: boolean
   auto_invoked?: boolean
   agent_wide_fallback?: boolean
+  parallel?: boolean
   /** One-line why this tool ran (demo / judges). */
   reason?: string
   /** Lightweight multi-agent grouping: orchestrator | safety | evidence | writer */
   agent_role?: string
+}
+
+export interface RunTimingSummary {
+  total_ms: number
+  llm_ms: number
+  tool_ms: number
+  by_tool_ms?: Record<string, number>
+  slowest_tools?: { tool: string; duration_ms: number }[]
+  step_count?: number
 }
 
 export interface LogLine {

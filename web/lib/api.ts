@@ -191,6 +191,17 @@ export async function getGlucose(patientId: string): Promise<Record<string, unkn
   return request(`/glucose/${encodeURIComponent(patientId)}`)
 }
 
+export async function deleteAgentBrief(patientId: string): Promise<{ deleted: string }> {
+  return request(`/agent_brief/${encodeURIComponent(patientId)}`, { method: "DELETE" })
+}
+
+export async function deleteAllAgentBriefs(): Promise<{
+  deleted_briefs: number
+  deleted_context_files: number
+}> {
+  return request("/agent_briefs", { method: "DELETE" })
+}
+
 export async function getAgentBrief(
   patientId: string,
   opts?: { refresh?: boolean; cacheOnly?: boolean }

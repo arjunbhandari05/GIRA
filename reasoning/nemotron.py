@@ -8,6 +8,7 @@ import os
 import re
 import ssl
 import sys
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -35,11 +36,10 @@ NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "nemotron-mini")
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
-NIM_MODEL = os.getenv(
-    "NIM_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-)
-NIM_MAX_TOKENS = int(os.getenv("NIM_MAX_TOKENS", "4096"))
+NIM_MODEL = os.getenv("NIM_MODEL", "nvidia/nemotron-3-nano-30b-a3b")
+NIM_MAX_TOKENS = int(os.getenv("NIM_MAX_TOKENS", "16384"))
 NIM_TIMEOUT_SEC = int(os.getenv("NIM_TIMEOUT_SEC", "300"))
+NIM_REASONING_BUDGET = int(os.getenv("NIM_REASONING_BUDGET", "16384"))
 # auto | nim | openrouter | ollama — when auto, NIM wins if NVIDIA_API_KEY is set
 LLM_BACKEND = os.getenv("LLM_BACKEND", "auto").strip().lower()
 
@@ -165,10 +165,13 @@ def _trace_step_record(
     fallback_reason: str | None = None,
     reason: str | None = None,
     agent_role: str | None = None,
+    duration_ms: int | None = None,
+    step_kind: str = "tool",
 ) -> dict[str, Any]:
     src, status, detail, partial = _infer_tool_status(tool, result)
     row: dict[str, Any] = {
         "tool": tool,
+        "step_kind": step_kind,
         "args_summary": args_summary,
         "result_summary": _summarize_result(tool, result),
         "plan_fallback": deterministic,
@@ -178,6 +181,8 @@ def _trace_step_record(
         "reason": reason or _default_trace_reason(tool, args_summary),
         "agent_role": agent_role or _default_agent_role(tool),
     }
+    if duration_ms is not None and duration_ms >= 0:
+        row["duration_ms"] = duration_ms
     if detail:
         row["detail"] = detail
     if auto_invoked:
@@ -204,6 +209,61 @@ def _emit_trace_step(
     trace.append(step)
     if on_trace_step:
         on_trace_step(dict(step))
+
+
+def _trace_llm_turn_record(
+    iteration: int,
+    duration_ms: int,
+    backend: str,
+    *,
+    status: str = "ok",
+) -> dict[str, Any]:
+    return {
+        "tool": "nemotron_turn",
+        "step_kind": "llm",
+        "duration_ms": max(0, duration_ms),
+        "args_summary": {"iteration": iteration + 1},
+        "result_summary": {"backend": backend, "iteration": iteration + 1},
+        "status": status,
+        "reason": "Plan next tool call via Nemotron",
+        "agent_role": "orchestrator",
+    }
+
+
+def _timed_execute_tool(
+    name: str,
+    args: dict[str, Any],
+    tools_by_name: dict[str, dict[str, Any]],
+) -> tuple[Any, int]:
+    t0 = time.perf_counter()
+    result = _execute_tool(name, args, tools_by_name)
+    return result, int((time.perf_counter() - t0) * 1000)
+
+
+def _compute_timing_summary(trace: list[dict[str, Any]]) -> dict[str, Any]:
+    llm_ms = 0
+    tool_ms = 0
+    by_tool: dict[str, int] = {}
+    for step in trace:
+        ms = int(step.get("duration_ms") or 0)
+        kind = step.get("step_kind") or (
+            "llm" if step.get("tool") == "nemotron_turn" else "tool"
+        )
+        if kind == "llm":
+            llm_ms += ms
+        else:
+            tool_ms += ms
+            tool_name = str(step.get("tool") or "unknown")
+            by_tool[tool_name] = by_tool.get(tool_name, 0) + ms
+    slowest = sorted(by_tool.items(), key=lambda x: x[1], reverse=True)[:6]
+    return {
+        "total_ms": llm_ms + tool_ms,
+        "llm_ms": llm_ms,
+        "tool_ms": tool_ms,
+        "by_tool_ms": by_tool,
+        "slowest_tools": [{"tool": t, "duration_ms": ms} for t, ms in slowest],
+        "step_count": len(trace),
+    }
 
 
 async def run_with_tools(
@@ -296,8 +356,9 @@ async def run_with_tools(
         )
 
     for iteration in range(MAX_ITERATIONS):
+        llm_t0 = time.perf_counter()
         try:
-            response_text = _call_model(messages, backend)
+            response_text = _call_model(messages, backend, for_agent=True)
         except Exception as exc:
             _log(f"[nemotron] model call failed at iter {iteration + 1}: {exc}")
             return _attach_trace(
@@ -315,7 +376,13 @@ async def run_with_tools(
                 error=str(exc),
             )
 
-        _log(f"[nemotron] iter {iteration + 1}: {response_text[:160].replace(chr(10), ' ')}...")
+        llm_ms = int((time.perf_counter() - llm_t0) * 1000)
+        llm_step = _trace_llm_turn_record(iteration, llm_ms, backend)
+        _emit_trace_step(trace, llm_step, on_trace_step)
+        _log(
+            f"[nemotron] iter {iteration + 1} llm={llm_ms}ms: "
+            f"{response_text[:160].replace(chr(10), ' ')}..."
+        )
         parsed = _safe_json(response_text)
 
         if parsed is None:
@@ -348,12 +415,15 @@ async def run_with_tools(
                 forced_args = _enrich_args(
                     "generate_brief", {"all_findings": findings}, findings, patient
                 )
-                forced = _execute_tool("generate_brief", forced_args, tools_by_name)
+                forced, forced_ms = _timed_execute_tool(
+                    "generate_brief", forced_args, tools_by_name
+                )
                 tr = _trace_step_record(
                     "generate_brief",
                     _summarize_args(forced_args),
                     forced,
                     auto_invoked=True,
+                    duration_ms=forced_ms,
                 )
                 _emit_trace_step(trace, tr, on_trace_step)
                 findings["generate_brief"] = forced
@@ -409,11 +479,18 @@ async def run_with_tools(
         args = _enrich_args(name, args, findings, patient)
 
         _log(f"[nemotron] tool: {name}  args: {json.dumps(args, default=str)[:140]}")
-        result = _execute_tool(name, args, tools_by_name)
+        result, tool_ms = _timed_execute_tool(name, args, tools_by_name)
         findings[name] = result
         call_counts[name] = call_counts.get(name, 0) + 1
-        tr = _trace_step_record(name, _summarize_args(args), result, deterministic=False)
+        tr = _trace_step_record(
+            name,
+            _summarize_args(args),
+            result,
+            deterministic=False,
+            duration_ms=tool_ms,
+        )
         _emit_trace_step(trace, tr, on_trace_step)
+        _log(f"[nemotron] tool {name} done in {tool_ms}ms")
 
         if name == "check_safety_flags":
             safety_checked = True
@@ -490,8 +567,42 @@ def _detect_backend() -> str:
     return "none"
 
 
-def _prepare_nim_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Nemotron Super models use /think on the system message for reasoning mode."""
+def _nim_enable_thinking(*, for_agent: bool = False) -> bool:
+    if for_agent:
+        raw = os.getenv("NIM_AGENT_ENABLE_THINKING", "false")
+    else:
+        raw = os.getenv("NIM_ENABLE_THINKING", "true")
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _nim_reasoning_budget(*, for_agent: bool = False) -> int:
+    if for_agent:
+        return int(os.getenv("NIM_AGENT_REASONING_BUDGET", "4096"))
+    return NIM_REASONING_BUDGET
+
+
+def _nim_max_tokens(*, for_agent: bool = False) -> int:
+    if for_agent:
+        return int(os.getenv("NIM_AGENT_MAX_TOKENS", str(min(NIM_MAX_TOKENS, 8192))))
+    return NIM_MAX_TOKENS
+
+
+def _nim_is_reasoning_model(*, for_agent: bool = False) -> bool:
+    """Thinking/reasoning kwargs (enable_thinking, reasoning_budget) for Nemotron 3 Super / nano."""
+    m = NIM_MODEL.lower()
+    if _nim_enable_thinking(for_agent=for_agent) and (
+        "nemotron-3" in m or "reasoning" in m
+    ):
+        return True
+    return "reasoning" in m
+
+
+def _prepare_nim_messages(
+    messages: list[dict[str, str]], *, for_agent: bool = False
+) -> list[dict[str, str]]:
+    """Legacy Super models use /think on the system message; nano reasoning uses API kwargs."""
+    if _nim_is_reasoning_model(for_agent=for_agent):
+        return messages
     if "nemotron-super" not in NIM_MODEL.lower():
         return messages
     out: list[dict[str, str]] = [dict(m) for m in messages]
@@ -507,6 +618,8 @@ def _extract_chat_content(body: dict) -> str:
     msg = (body.get("choices", [{}])[0].get("message") or {})
     content = (msg.get("content") or "").strip()
     if not content:
+        content = (msg.get("reasoning_content") or "").strip()
+    if not content:
         content = (msg.get("reasoning") or "").strip()
     return content
 
@@ -516,18 +629,35 @@ def _call_model(
     backend: str,
     *,
     json_mode: bool = True,
+    for_agent: bool = False,
 ) -> str:
     if backend == "openrouter":
-        return _call_openrouter(messages)
+        return _call_openrouter(messages, json_mode=json_mode)
     if backend == "nim":
-        return _call_nim(messages, json_mode=json_mode)
+        try:
+            return _call_nim(messages, json_mode=json_mode, for_agent=for_agent)
+        except RuntimeError as exc:
+            if "401" in str(exc) or "403" in str(exc):
+                or_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+                if or_key and LLM_BACKEND == "auto":
+                    _log(f"[nemotron] nim auth failed — falling back to openrouter: {exc}")
+                    return _call_openrouter(messages, json_mode=json_mode)
+            raise
     if backend == "ollama":
-        return _call_ollama(messages)
+        return _call_ollama(messages, json_mode=json_mode)
     raise RuntimeError("no LLM backend available")
 
 
-def _call_openrouter(messages: list[dict[str, str]]) -> str:
+def _call_openrouter(messages: list[dict[str, str]], *, json_mode: bool = True) -> str:
     key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    payload: dict[str, Any] = {
+        "model": OPENROUTER_AGENT_MODEL,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": int(os.getenv("FOLLOWUP_MAX_TOKENS", "2048")),
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
     response = requests.post(
         OPENROUTER_URL,
         headers={
@@ -536,13 +666,7 @@ def _call_openrouter(messages: list[dict[str, str]]) -> str:
             "HTTP-Referer": "https://github.com/arjunbhandari05/GIRA",
             "X-Title": "GIRA",
         },
-        json={
-            "model": OPENROUTER_AGENT_MODEL,
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": 1024,
-            "response_format": {"type": "json_object"},
-        },
+        json=payload,
         timeout=120,
         verify=certifi.where(),
     )
@@ -551,16 +675,18 @@ def _call_openrouter(messages: list[dict[str, str]]) -> str:
     return _extract_chat_content(response.json())
 
 
-def _call_ollama(messages: list[dict[str, str]]) -> str:
+def _call_ollama(messages: list[dict[str, str]], *, json_mode: bool = True) -> str:
+    body: dict[str, Any] = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": 0.1},
+    }
+    if json_mode:
+        body["format"] = "json"
     response = requests.post(
         f"{OLLAMA_HOST}/api/chat",
-        json={
-            "model": OLLAMA_MODEL,
-            "messages": messages,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.1},
-        },
+        json=body,
         timeout=120,
         verify=certifi.where(),
     )
@@ -569,18 +695,29 @@ def _call_ollama(messages: list[dict[str, str]]) -> str:
     return (body.get("message") or {}).get("content") or ""
 
 
-def _call_nim(messages: list[dict[str, str]], *, json_mode: bool = True) -> str:
-    nim_messages = _prepare_nim_messages(messages)
+def _call_nim(
+    messages: list[dict[str, str]], *, json_mode: bool = True, for_agent: bool = False
+) -> str:
+    if not NVIDIA_API_KEY:
+        raise RuntimeError("NVIDIA_API_KEY is not set")
+
+    nim_messages = _prepare_nim_messages(messages, for_agent=for_agent)
+    use_thinking = _nim_is_reasoning_model(for_agent=for_agent)
+    # Reasoning nano models reject response_format; rely on prompt for JSON tool calls.
+    effective_json = json_mode and not use_thinking
+
     payload: dict[str, Any] = {
         "model": NIM_MODEL,
         "messages": nim_messages,
-        "temperature": float(os.getenv("NIM_TEMPERATURE", "0.6")),
-        "top_p": float(os.getenv("NIM_TOP_P", "0.95")),
-        "max_tokens": NIM_MAX_TOKENS,
-        "frequency_penalty": 0,
-        "presence_penalty": 0,
+        "temperature": float(os.getenv("NIM_TEMPERATURE", "1")),
+        "top_p": float(os.getenv("NIM_TOP_P", "1")),
+        "max_tokens": _nim_max_tokens(for_agent=for_agent),
+        "stream": False,
     }
-    if json_mode:
+    if use_thinking:
+        payload["chat_template_kwargs"] = {"enable_thinking": True}
+        payload["reasoning_budget"] = _nim_reasoning_budget(for_agent=for_agent)
+    if effective_json:
         payload["response_format"] = {"type": "json_object"}
 
     headers = {
@@ -595,9 +732,9 @@ def _call_nim(messages: list[dict[str, str]], *, json_mode: bool = True) -> str:
         timeout=NIM_TIMEOUT_SEC,
         verify=certifi.where(),
     )
-    if response.status_code >= 400 and json_mode:
+    if response.status_code >= 400 and effective_json:
         _log(f"[nim] json_mode failed ({response.status_code}), retrying without response_format")
-        return _call_nim(messages, json_mode=False)
+        return _call_nim(messages, json_mode=False, for_agent=for_agent)
     if response.status_code >= 400:
         raise RuntimeError(f"nim http {response.status_code}: {response.text[:300]}")
     return _extract_chat_content(response.json())
@@ -786,12 +923,19 @@ async def run_parallel_tool_plan(
     async def _run_traced(
         tool_name: str, args: dict[str, Any]
     ) -> tuple[str, dict[str, Any], Any]:
+        t0 = time.perf_counter()
         tool_name, enriched, result = await _run_tool(tool_name, args)
+        tool_ms = int((time.perf_counter() - t0) * 1000)
         rec = _trace_step_record(
-            tool_name, _summarize_args(enriched), result, deterministic=True
+            tool_name,
+            _summarize_args(enriched),
+            result,
+            deterministic=True,
+            duration_ms=tool_ms,
         )
         rec["parallel"] = True
         _emit_trace_step(trace, rec, on_trace_step)
+        _log(f"[nemotron] parallel {tool_name} done in {tool_ms}ms")
         return tool_name, enriched, result
 
     _log(f"[nemotron] parallel plan  patient={patient_id}")
@@ -933,7 +1077,13 @@ def _deterministic_plan(
 
     first_fallback_note = True
 
-    def _note(tool_name: str, args: dict, result: Any) -> None:
+    def _note(
+        tool_name: str,
+        args: dict,
+        result: Any,
+        *,
+        duration_ms: int | None = None,
+    ) -> None:
         nonlocal first_fallback_note
         if trace is None:
             return
@@ -947,6 +1097,7 @@ def _deterministic_plan(
             deterministic=True,
             agent_wide_fallback=aw,
             fallback_reason=fr,
+            duration_ms=duration_ms,
         )
         _emit_trace_step(trace, rec, on_trace_step)
 
@@ -956,13 +1107,13 @@ def _deterministic_plan(
             last_meta: dict[str, Any] = {}
             for gene, drug in pubmed_pairs:
                 args = {"gene": gene, "drug": drug}
-                got = _execute_tool("fetch_pubmed", args, tools_by_name)
+                got, pub_ms = _timed_execute_tool("fetch_pubmed", args, tools_by_name)
                 if isinstance(got, dict):
                     collected.extend(got.get("articles") or [])
                     last_meta = got.get("_meta") or last_meta
                 elif isinstance(got, list):
                     collected.extend(got)
-                _note("fetch_pubmed", args, got)
+                _note("fetch_pubmed", args, got, duration_ms=pub_ms)
             findings["fetch_pubmed"] = {"articles": collected, "_meta": last_meta}
             continue
 
@@ -979,8 +1130,8 @@ def _deterministic_plan(
                     "gene": gene,
                     "zip_code": patient.get("zip_code") or patient.get("zip", ""),
                 }
-                got = _execute_tool("fetch_trials", args, tools_by_name)
-                _note("fetch_trials", args, got)
+                got, trial_ms = _timed_execute_tool("fetch_trials", args, tools_by_name)
+                _note("fetch_trials", args, got, duration_ms=trial_ms)
                 rows: list[dict] = []
                 if isinstance(got, dict):
                     rows = [t for t in (got.get("trials") or []) if isinstance(t, dict)]
@@ -1017,13 +1168,39 @@ def _deterministic_plan(
             args = {}
 
         args = _enrich_args(tool_name, args, findings, patient)
-        result = _execute_tool(tool_name, args, tools_by_name)
+        result, tool_ms = _timed_execute_tool(tool_name, args, tools_by_name)
         findings[tool_name] = result
-        _note(tool_name, args, result)
+        _note(tool_name, args, result, duration_ms=tool_ms)
         if tool_name == "generate_brief":
             return result
 
     return findings.get("generate_brief") or {}
+
+
+def followup(patient_id: str, messages: list[dict]) -> str:
+    """Grounded follow-up Q&A using the persisted patient context file (no tools)."""
+    from output.patient_context import build_followup_system_prompt, load_patient_context
+
+    ctx = load_patient_context(patient_id)
+    system = build_followup_system_prompt(ctx)
+    backend = _detect_backend()
+    if backend == "none":
+        return ERROR_TEXT
+
+    llm_messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("role") or "user")
+        content = str(msg.get("content") or "")
+        if content:
+            llm_messages.append({"role": role, "content": content})
+
+    try:
+        return _call_model(llm_messages, backend, json_mode=False).strip()
+    except Exception as exc:
+        _log(f"followup error: {exc}")
+        return f"Follow-up reasoning failed: {exc}"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1058,6 +1235,8 @@ def _attach_trace(
         brief["_llm_model"] = mid
     if error:
         brief["_backend_error"] = error
+    if trace:
+        brief["_timing"] = _compute_timing_summary(trace)
     return brief
 
 

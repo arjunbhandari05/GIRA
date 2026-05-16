@@ -205,7 +205,260 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
         "cpic_recommendations": _cpic_list(cpic_raw),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    from output.patient_context import write_patient_context
+
+    patient_id = str(patient.get("patient_id") or patient.get("id") or "")
+    if patient_id:
+        write_patient_context(
+            patient_id=patient_id,
+            brief=_brief_for_patient_context(out, findings, patient, glucose, whoop),
+            intake=_intake_for_patient_context(patient),
+            genome_profile=_genome_profile_for_context(snp_profile),
+            glucose_summary=_glucose_summary_for_context(glucose, glucose_insight),
+            wearable_summary=_wearable_summary_for_context(whoop, wearable_insight),
+        )
     return out
+
+
+def _parse_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value).replace("%", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_bp(bp: str) -> tuple[int | None, int | None]:
+    if not bp or "/" not in str(bp):
+        return None, None
+    parts = str(bp).split("/", 1)
+    try:
+        return int(float(parts[0].strip())), int(float(parts[1].strip()))
+    except (TypeError, ValueError):
+        return None, None
+
+
+def _intake_for_patient_context(patient: dict[str, Any]) -> dict[str, Any]:
+    intake = dict(patient.get("intake") or {})
+    vitals = dict(intake.get("vitals") or {})
+    weight = _parse_float(vitals.get("weight"))
+    height = _parse_float(vitals.get("height"))
+    bmi = None
+    if weight and height and height > 0:
+        height_m = height / 100 if height > 3 else height
+        if height_m > 0:
+            bmi = round(weight / (height_m**2), 1)
+    sys_bp, dia_bp = _parse_bp(vitals.get("bloodPressure", ""))
+    return {
+        **intake,
+        "name": patient.get("name") or intake.get("name") or "Unknown",
+        "vitals": {
+            **vitals,
+            "weight_kg": weight,
+            "height_cm": height,
+            "bmi": bmi,
+            "hba1c_pct": _parse_float(vitals.get("hba1c")),
+            "systolic_bp": sys_bp,
+            "diastolic_bp": dia_bp,
+            "egfr": _parse_float(vitals.get("egfr")),
+        },
+    }
+
+
+def _genome_profile_for_context(snp_profile: dict[str, dict]) -> dict[str, Any]:
+    snps: dict[str, str] = {}
+    for rsid, row in (snp_profile or {}).items():
+        if isinstance(row, dict):
+            genotype = row.get("genotype")
+            if genotype:
+                snps[str(rsid)] = str(genotype)
+        elif isinstance(row, str):
+            snps[str(rsid)] = row
+    return {"snps": snps, "total_snps_parsed": len(snps)}
+
+
+def _glucose_summary_for_context(
+    glucose: dict[str, Any], glucose_insight: dict[str, Any]
+) -> dict[str, Any]:
+    daily = glucose.get("daily_summaries") or [] if isinstance(glucose, dict) else []
+    peak_vals = [
+        d.get("avg_mgdl")
+        for d in daily
+        if isinstance(d, dict) and d.get("avg_mgdl") is not None
+    ]
+    peak = max(peak_vals) if peak_vals else None
+    hypo_events = glucose.get("hypoglycemic_events") if isinstance(glucose, dict) else 0
+    return {
+        "avg_fasting": glucose.get("avg_glucose_mgdl") if isinstance(glucose, dict) else None,
+        "avg_postprandial_rise": glucose.get("trend_delta_mgdl") if isinstance(glucose, dict) else None,
+        "time_in_range_pct": glucose_insight.get("time_in_range_pct"),
+        "time_high_pct": glucose.get("time_above_range_pct") if isinstance(glucose, dict) else None,
+        "time_low_pct": glucose.get("time_below_range_pct") if isinstance(glucose, dict) else None,
+        "peak_glucose": peak,
+        "glucose_variability_cv": glucose_insight.get("cv_pct") or glucose.get("cv_pct"),
+        "nocturnal_lows": bool(hypo_events),
+        "dawn_phenomenon": False,
+        "dawn_phenomenon_days": None,
+        "interpretation": glucose.get("clinical_note") if isinstance(glucose, dict) else "",
+    }
+
+
+def _wearable_summary_for_context(
+    whoop: dict[str, Any], wearable_insight: dict[str, Any]
+) -> dict[str, Any]:
+    metrics = whoop.get("metrics") or {} if isinstance(whoop, dict) else {}
+    return {
+        "avg_recovery_pct": wearable_insight.get("recovery_avg"),
+        "avg_resting_hr": wearable_insight.get("rhr_avg"),
+        "avg_hrv_ms": wearable_insight.get("hrv_ms_avg"),
+        "avg_strain": None,
+        "sleep_score_pct": None,
+        "deep_sleep_pct": None,
+        "avg_sleep_hrs": None,
+        "interpretation": (
+            "HRV trend: "
+            f"{wearable_insight.get('hrv_trend', 'unknown')}; "
+            f"recovery avg {wearable_insight.get('recovery_avg')}%"
+            if wearable_insight.get("available")
+            else ""
+        ),
+    }
+
+
+def _map_safety_flag_for_context(flag: dict[str, Any], snp_profile: dict[str, dict]) -> dict[str, Any]:
+    rsid = flag.get("rsid") or ""
+    genotype = (snp_profile.get(rsid) or {}).get("genotype", "")
+    severity = str(flag.get("severity") or "").upper()
+    mapped_severity = "flag" if severity == "CRITICAL" else "warn" if severity == "WARNING" else "ok"
+    return {
+        "gene": flag.get("gene"),
+        "rsid": rsid,
+        "variant": rsid,
+        "genotype": genotype,
+        "impact": flag.get("flag") or flag.get("action") or "",
+        "severity": mapped_severity,
+    }
+
+
+def _trace_dict_for_context(findings: dict[str, Any]) -> dict[str, Any]:
+    tools_called = [
+        k
+        for k in findings
+        if k not in ("patient", "_fast_brief") and not str(k).startswith("_")
+    ]
+    pubmed = findings.get("fetch_pubmed")
+    pubmed_articles: list[Any] = []
+    if isinstance(pubmed, dict) and isinstance(pubmed.get("articles"), list):
+        pubmed_articles = pubmed["articles"]
+    elif isinstance(pubmed, list):
+        pubmed_articles = pubmed
+
+    clinvar = findings.get("fetch_clinvar")
+    clinvar_hits = []
+    if isinstance(clinvar, dict):
+        clinvar_hits = clinvar.get("variants") or clinvar.get("hits") or []
+
+    rxnorm = findings.get("fetch_rxnorm")
+    rxnorm_hits = rxnorm if isinstance(rxnorm, list) else []
+
+    pharmgkb = findings.get("fetch_pharmgkb")
+    pharmgkb_hits = pharmgkb if isinstance(pharmgkb, list) else []
+
+    return {
+        "tools_called": tools_called,
+        "tool_summaries": [
+            {"tool": name, "has_data": bool(findings.get(name))} for name in tools_called
+        ],
+        "reasoning_steps": [],
+        "tokens_used": None,
+        "pubmed_abstracts": pubmed_articles,
+        "clinvar_hits": clinvar_hits if isinstance(clinvar_hits, list) else [],
+        "rxnorm_interactions": rxnorm_hits,
+        "pharmgkb_hits": pharmgkb_hits if isinstance(pharmgkb_hits, list) else [],
+    }
+
+
+def _brief_for_patient_context(
+    out: dict[str, Any],
+    findings: dict[str, Any],
+    patient: dict[str, Any],
+    glucose: dict[str, Any],
+    whoop: dict[str, Any],
+) -> dict[str, Any]:
+    brief = dict(out)
+    rec = out.get("recommendation") or {}
+    start = rec.get("start") or ""
+    rationale_list = list(rec.get("rationale") or [])
+    snp_rows = out.get("snp_summary") or []
+    snp_text = "\n".join(
+        f"{row.get('gene')} {row.get('rsid')} {row.get('genotype')}: {row.get('finding')}"
+        for row in snp_rows
+        if isinstance(row, dict)
+    )
+
+    brief["safety_flags"] = [
+        _map_safety_flag_for_context(f, _extract_snp_profile(findings))
+        for f in (out.get("safety_flags") or [])
+        if isinstance(f, dict)
+    ]
+    brief["recommendation"] = {
+        **rec,
+        "drug_name": start or rec.get("discontinue"),
+        "drug_class": "GLP-1 RA" if "semaglutide" in str(start).lower() else "Antidiabetic",
+        "evidence_level": "CPIC + literature",
+        "confidence": "High" if rec.get("switch_required") else "Medium",
+        "rationale": {
+            "genomic": rationale_list[0] if rationale_list else "See SNP findings.",
+            "cgm": (
+                f"TIR {glucose.get('time_in_range_pct')}% ({glucose.get('trend_direction', 'unknown')} trend)"
+                if isinstance(glucose, dict) and glucose.get("time_in_range_pct") is not None
+                else "CGM data summarized in brief."
+            ),
+            "wearable": (
+                f"HRV avg {brief.get('wearable_insight', {}).get('hrv_ms_avg')} ms"
+                if brief.get("wearable_insight", {}).get("available")
+                else "Wearable data summarized in brief."
+            ),
+            "safety_note": "; ".join(
+                f.get("impact", "")
+                for f in brief.get("safety_flags", [])
+                if f.get("severity") == "flag"
+            )
+            or None,
+        },
+        "narrative": out.get("patient_summary", ""),
+        "full_text": " ".join(rationale_list),
+    }
+    brief["snp_summary"] = snp_text
+    gi = out.get("glucose_insight") or {}
+    wi = out.get("wearable_insight") or {}
+    brief["glucose_insight"] = (
+        f"TIR {gi.get('time_in_range_pct')}% · avg {gi.get('avg_glucose_mgdl')} mg/dL · CV {gi.get('cv_pct')}%"
+        if gi.get("available")
+        else ""
+    )
+    brief["wearable_insight"] = (
+        f"HRV {wi.get('hrv_ms_avg')} ms · recovery {wi.get('recovery_avg')}% · RHR {wi.get('rhr_avg')} bpm"
+        if wi.get("available")
+        else ""
+    )
+    brief["intake_summary"] = (
+        format_intake_for_llm(patient.get("intake") or {})
+        if patient.get("intake")
+        else str(out.get("intake_summary") or "")
+    )
+    brief["_trace"] = _trace_dict_for_context(findings)
+    brief["citations"] = [
+        {
+            "index": i + 1,
+            "text": f"{c.get('title', '')} (PMID {c.get('pmid', '')}): {c.get('inference', '')}",
+        }
+        for i, c in enumerate(out.get("citations") or [])
+        if isinstance(c, dict)
+    ]
+    return brief
 
 
 def _cpic_list(cpic_raw: Any) -> list[dict]:

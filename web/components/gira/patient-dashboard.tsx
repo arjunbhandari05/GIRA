@@ -9,7 +9,9 @@ import {
   Pill,
   Activity,
   FolderOpen,
+  FileText,
 } from "lucide-react"
+import BriefInferencePanel from "@/components/brief/BriefInferencePanel"
 import {
   getAgentBrief,
   getIntake,
@@ -33,7 +35,7 @@ interface PatientDashboardProps {
   onSignOut: () => void
 }
 
-type Tab = "home" | "setup" | "metrics"
+type Tab = "home" | "brief" | "setup" | "metrics"
 
 export default function PatientDashboard({ patientId, onSignOut }: PatientDashboardProps) {
   const [loading, setLoading] = useState(true)
@@ -116,10 +118,11 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
             <LogOut className="w-5 h-5 text-[#9895A8]" />
           </button>
         </div>
-        <nav className="max-w-3xl mx-auto px-6 flex gap-1 border-t border-[#F0EEF5]">
+        <nav className="max-w-3xl mx-auto px-6 flex gap-1 border-t border-[#F0EEF5] flex-wrap">
           {(
             [
               { id: "home" as Tab, label: "Home", icon: Calendar },
+              ...(hasBrief ? [{ id: "brief" as Tab, label: "Your brief", icon: FileText }] : []),
               { id: "setup" as Tab, label: "Setup", icon: FolderOpen },
               { id: "metrics" as Tab, label: "Live Metrics", icon: Activity },
             ] as const
@@ -142,6 +145,17 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+        {tab === "brief" && hasBrief && (
+          <BriefInferencePanel
+            patientId={patientId}
+            audience="patient"
+            embedded
+            initialView="patient"
+            showViewToggle={false}
+            loadWhenActive
+            isActive={tab === "brief"}
+          />
+        )}
         {tab === "setup" && (
           <SetupTab
             patientId={patientId}
@@ -268,6 +282,14 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
                 A research study near you may be a fit. Ask your doctor.
               </div>
             )}
+
+            <button
+              type="button"
+              onClick={() => setTab("brief")}
+              className="w-full bg-[#5B3FD4] text-white rounded-lg py-3 text-[14px] font-medium hover:bg-[#4A32B0] transition-colors"
+            >
+              Open your full medication brief
+            </button>
           </>
         )}
 

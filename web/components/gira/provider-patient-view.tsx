@@ -1,14 +1,16 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { ArrowLeft, FileText, ClipboardList, Activity, Dna } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { ArrowLeft, FileText, ClipboardList, Activity, Dna, Sparkles } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import type { Patient } from "@/lib/types"
+import BriefInferencePanel from "@/components/brief/BriefInferencePanel"
 import BriefTab from "./tabs/brief-tab"
 import IntakeFormTab from "./tabs/intake-form-tab"
 import WhoopDataTab from "./tabs/whoop-data-tab"
 import GenomeTab from "./tabs/genome-tab"
-type Tab = "brief" | "intake" | "whoop" | "genome"
+
+type Tab = "brief" | "results" | "intake" | "whoop" | "genome"
 
 interface ProviderPatientViewProps {
   patient: Patient
@@ -18,12 +20,14 @@ interface ProviderPatientViewProps {
   initialTab?: Tab
 }
 
-const tabConfig: { id: Tab; label: string; icon: typeof FileText }[] = [
-  { id: "brief", label: "Brief", icon: FileText },
+const baseTabs: { id: Tab; label: string; icon: typeof FileText }[] = [
+  { id: "brief", label: "Agent", icon: FileText },
   { id: "intake", label: "Intake", icon: ClipboardList },
   { id: "whoop", label: "Metrics", icon: Activity },
   { id: "genome", label: "Genome", icon: Dna },
 ]
+
+const resultsTab = { id: "results" as Tab, label: "Clinician brief", icon: Sparkles }
 
 export default function ProviderPatientView({
   patient,
@@ -31,14 +35,28 @@ export default function ProviderPatientView({
   onPatientUpdated,
   initialTab = "brief",
 }: ProviderPatientViewProps) {
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab)
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab === "brief" ? "brief" : initialTab)
   const [dataRefreshKey, setDataRefreshKey] = useState(0)
+  const [hasCachedBrief, setHasCachedBrief] = useState(false)
+  const [resultsKey, setResultsKey] = useState(0)
 
   const bumpDataRefresh = () => setDataRefreshKey((k) => k + 1)
 
   useEffect(() => {
-    setActiveTab(initialTab)
+    const tab = initialTab === "brief" ? "brief" : initialTab
+    setActiveTab(tab)
   }, [initialTab, patient.id])
+
+  const tabConfig = useMemo(
+    () => (hasCachedBrief ? [baseTabs[0], resultsTab, ...baseTabs.slice(1)] : baseTabs),
+    [hasCachedBrief]
+  )
+
+  const handleBriefComplete = () => {
+    setHasCachedBrief(true)
+    setResultsKey((k) => k + 1)
+    setActiveTab("results")
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -109,6 +127,19 @@ export default function ProviderPatientView({
               <BriefTab
                 patient={patient}
                 onNavigateIntake={() => setActiveTab("intake")}
+                onBriefComplete={handleBriefComplete}
+              />
+            )}
+            {activeTab === "results" && hasCachedBrief && (
+              <BriefInferencePanel
+                key={resultsKey}
+                patientId={patient.id}
+                audience="clinician"
+                embedded
+                initialView="clinician"
+                showViewToggle
+                loadWhenActive
+                isActive={activeTab === "results"}
               />
             )}
             {activeTab === "intake" && (

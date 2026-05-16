@@ -10,6 +10,7 @@ import type {
   TraceStep,
   UiRecommendation,
 } from "./types"
+import { formatDurationMs } from "./format-duration"
 
 const DEMO_DISPLAY: Record<string, Partial<Patient>> = {
   "PT-001": { appointment: "Tomorrow 9:15am" },
@@ -132,6 +133,7 @@ const TOOL_LABELS: Record<string, string> = {
   fetch_glucose: "CGM glucose trends",
   check_safety_flags: "PGx safety gate review",
   generate_brief: "Assembling clinician brief",
+  nemotron_turn: "Nemotron planning",
 }
 
 /** Console display: tool_id → human label */
@@ -143,6 +145,7 @@ export const TOOL_CONSOLE_LABELS: Record<string, string> = {
   get_snp_profile: "Genomic SNP extraction",
   check_safety_flags: "Safety flag evaluation",
   generate_brief: "Brief synthesis",
+  nemotron_turn: "Nemotron planning",
   fetch_glucose: "CGM glucose trends",
   get_patient_intake: "Patient intake load",
   fetch_pharmgkb: "PharmGKB panel evidence",
@@ -274,8 +277,19 @@ function summarizeTraceResult(step: TraceStep): string {
   }
 }
 
+function traceDurationSuffix(step: TraceStep): string {
+  const label = formatDurationMs(step.duration_ms)
+  return label ? ` · ${label}` : ""
+}
+
 /** Human-readable one-liner for a GIRA pipeline tool step (terminal + tool trace). */
 export function formatTraceStep(step: TraceStep): string {
+  if (step.tool === "nemotron_turn" || step.step_kind === "llm") {
+    const iter = step.args_summary?.iteration ?? step.result_summary?.iteration
+    const base = iter != null ? `Nemotron planning (turn ${iter})` : "Nemotron planning"
+    return `${base}${traceDurationSuffix(step)}`
+  }
+
   if (step.agent_wide_fallback && typeof step.detail === "string") {
     return step.detail
   }
@@ -296,9 +310,11 @@ export function formatTraceStep(step: TraceStep): string {
     return `${prefix} — ${detail} · demo data`
   }
   if (step.data_source === "cache" && detail) {
-    return `${prefix} — ${detail} · cached`
+    return `${prefix} — ${detail} · cached${traceDurationSuffix(step)}`
   }
-  return detail ? `${prefix} — ${detail}` : `${prefix}…`
+  const dur = traceDurationSuffix(step)
+  if (detail) return `${prefix} — ${detail}${dur}`
+  return dur ? `${prefix}${dur}` : `${prefix}…`
 }
 
 export function traceStepToLogLine(step: TraceStep, elapsedSec: number): LogLine {
@@ -310,10 +326,11 @@ export function traceStepToLogLine(step: TraceStep, elapsedSec: number): LogLine
       : step.reason
         ? `${step.reason} — ${detail || (step.partial ? "…" : "complete")}`
         : detail || (step.partial ? "…" : "complete")
+  const dur = traceDurationSuffix(step)
   return {
     timestamp: formatElapsedSeconds(elapsedSec),
     toolLabel: label,
-    text,
+    text: dur && !text.includes(dur) ? `${text}${dur}` : text,
     type: logTypeFromStep(step),
   }
 }

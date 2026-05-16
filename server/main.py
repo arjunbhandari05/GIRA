@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
+from pydantic import BaseModel
 
 from agent.memory import (
     create_patient,
@@ -284,6 +285,16 @@ def put_intake(patient_id: str, payload: dict) -> dict:
     }
 
 
+def _brief_cache_reads_enabled() -> bool:
+    """When false, GET /agent_brief never returns a stale DB brief unless ?cache_only=true."""
+    return os.getenv("AGENT_BRIEF_CACHE", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 async def _run_agent_brief(
     patient_id: str,
     *,
@@ -292,12 +303,16 @@ async def _run_agent_brief(
     on_trace_step: Any | None = None,
 ) -> dict:
     """Single brief pipeline: GIRA tool loop → assemble_brief (+ PGx synthesis)."""
-    if not refresh:
+    if cache_only:
         cached = _read_cached_agent_brief(patient_id)
         if cached:
             return cached
-        if cache_only:
-            return {"error": "not_cached", "cached": False}
+        return {"error": "not_cached", "cached": False}
+
+    if not refresh and _brief_cache_reads_enabled():
+        cached = _read_cached_agent_brief(patient_id)
+        if cached:
+            return cached
 
     patient = agent_read_patient(patient_id)
     if not patient:
@@ -317,6 +332,18 @@ async def _run_agent_brief(
         brief["cached"] = False
         _write_cached_agent_brief(patient_id, brief)
     return brief
+
+
+class FollowupRequest(BaseModel):
+    messages: list[dict]
+
+
+@app.post("/followup/{patient_id}")
+async def followup_endpoint(patient_id: str, body: FollowupRequest) -> dict:
+    from reasoning.nemotron import followup
+
+    reply = followup(patient_id=patient_id, messages=body.messages)
+    return {"reply": reply}
 
 
 @app.get("/brief/{patient_id}")
@@ -489,7 +516,30 @@ def delete_agent_brief(patient_id: str) -> dict:
     conn.execute("DELETE FROM agent_briefs WHERE patient_id = ?", (patient_id,))
     conn.commit()
     conn.close()
+    ctx_dir = ROOT / "output" / "patient_contexts"
+    ctx_path = ctx_dir / f"{patient_id}_context.json"
+    if ctx_path.is_file():
+        ctx_path.unlink()
     return {"deleted": patient_id}
+
+
+@app.delete("/agent_briefs")
+def delete_all_agent_briefs() -> dict:
+    """Clear every cached brief and patient context file (demo reset)."""
+    conn = sqlite3.connect(_db_path())
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM agent_briefs")
+    count = int(cur.fetchone()[0])
+    conn.execute("DELETE FROM agent_briefs")
+    conn.commit()
+    conn.close()
+    ctx_dir = ROOT / "output" / "patient_contexts"
+    removed_ctx = 0
+    if ctx_dir.is_dir():
+        for path in ctx_dir.glob("*_context.json"):
+            path.unlink(missing_ok=True)
+            removed_ctx += 1
+    return {"deleted_briefs": count, "deleted_context_files": removed_ctx}
 
 
 def _new_upload_patient_id() -> str:

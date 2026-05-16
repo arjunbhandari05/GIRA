@@ -15,7 +15,14 @@ import {
 } from "lucide-react"
 import { motion } from "framer-motion"
 import type { AgentBrief, LogLine, Patient, SafetyFlag } from "@/lib/types"
-import { getAgentBrief, getPatientAssets, getSafetyFlags, listPatients, streamAgentBrief } from "@/lib/api"
+import {
+  deleteAgentBrief,
+  getAgentBrief,
+  getPatientAssets,
+  getSafetyFlags,
+  listPatients,
+  streamAgentBrief,
+} from "@/lib/api"
 import {
   genotypeForFlag,
   severityUi,
@@ -23,15 +30,15 @@ import {
   traceToLogLines,
 } from "@/lib/mappers"
 import AgentConsole from "../agent-console"
-import DoctorBriefView from "../doctor-brief-view"
 import type { TraceStep } from "@/lib/types"
 
 interface BriefTabProps {
   patient: Patient
   onNavigateIntake?: () => void
+  onBriefComplete?: () => void
 }
 
-export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
+export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }: BriefTabProps) {
   const [pipelineRunning, setPipelineRunning] = useState(false)
   const [pipelineComplete, setPipelineComplete] = useState(false)
   const [activeCards, setActiveCards] = useState<string[]>([])
@@ -94,6 +101,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
   }, [patient.id, loadContext])
 
   const activateCardForTool = (tool: string) => {
+    if (tool === "nemotron_turn") return
     setActiveCards((prev) => {
       const next = new Set(prev)
       if (tool === "get_snp_profile" || tool === "fetch_pharmgkb") next.add("genome")
@@ -193,8 +201,11 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
     }
     setLogLines([{ timestamp: "00:00.0", text: "Loading PGx safety gates…", type: "info" }])
     setActiveCards([])
+    setBrief(null)
+    setPipelineComplete(false)
 
     try {
+      await deleteAgentBrief(patient.id).catch(() => {})
       const flags = await loadContext()
       const flagLine =
         flags.length === 0
@@ -259,6 +270,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
             if (result._trace?.length) activateCardsFromTrace(result._trace)
             setPipelineComplete(true)
             setConsoleAnimate(false)
+            onBriefComplete?.()
           }
           if (stepQueueRef.current.length > 0 || drainTimerRef.current) {
             const waitDrain = () => {
@@ -286,6 +298,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
           setBrief(result)
           setPipelineComplete(true)
           if (result._trace?.length) activateCardsFromTrace(result._trace)
+          onBriefComplete?.()
           completed = true
         }
       }
@@ -299,6 +312,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
           activateCardsFromTrace(result._trace)
         }
         setPipelineComplete(true)
+        onBriefComplete?.()
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Pipeline failed"
@@ -431,21 +445,23 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
       </div>
 
       {pipelineComplete && brief && (
-        <>
-          <DoctorBriefView
-            patient={patient}
-            brief={brief}
-            safetyFlags={safetyFlags}
-            snpProfile={snpProfile}
-          />
+        <div className="rounded-lg border border-[#E8E6F0] bg-[#FAFAFC] p-5 text-center space-y-3">
+          <p className="text-[14px] text-[#0D0B14] font-medium">Brief ready — open the Clinician brief tab to review.</p>
+          <button
+            type="button"
+            onClick={onBriefComplete}
+            className="w-full bg-[#5B3FD4] text-white rounded-lg py-3 text-[14px] font-medium hover:bg-[#4A32B0] transition-colors"
+          >
+            View clinician brief
+          </button>
           <button
             type="button"
             onClick={onNavigateIntake}
-            className="w-full bg-[#5B3FD4] text-white rounded-lg py-3 text-[14px] font-medium hover:bg-[#4A32B0] transition-colors"
+            className="w-full border border-[#E8E6F0] text-[#5B3FD4] rounded-lg py-2.5 text-[13px] font-medium hover:bg-white transition-colors"
           >
             Update medications (intake form)
           </button>
-        </>
+        </div>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 """ClinVar lookup via NCBI E-utilities."""
 
 import asyncio
+import json
 import os
 import ssl
 import time
@@ -119,6 +120,94 @@ def _clinical_significance(result: dict) -> str:
     return "unknown"
 
 
+def _match_rsid_in_block(block: dict, rsids: list[str]) -> str | None:
+    blob = json.dumps(block, default=str).lower()
+    for rs in rsids:
+        key = rs.strip().lower()
+        if key and key in blob:
+            return rs.strip()
+    title = str(block.get("title") or "").lower()
+    for rs in rsids:
+        key = rs.strip().lower()
+        if key and key in title:
+            return rs.strip()
+    return None
+
+
+def _variant_from_summary(uid: str, block: dict, rsid: str) -> dict:
+    rs = rsid.strip()
+    return {
+        "source": "ClinVar",
+        "rsid": rs,
+        "clinical_significance": _clinical_significance(block),
+        "condition": _condition(block),
+        "evidence_url": f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rs}",
+    }
+
+
+def _batch_clinvar_http(rsids: list[str]) -> list[dict]:
+    """Up to ~8 rsIDs per NCBI search (2 HTTP round-trips vs 2×N)."""
+    clean = [str(r).strip() for r in rsids if str(r).strip()]
+    if not clean:
+        return []
+    if len(clean) == 1:
+        return [_get_clinvar_http(clean[0])]
+
+    term = " OR ".join(f"{rs}[rs]" for rs in clean)
+    search_url = BASE_URL + "esearch.fcgi?" + urlencode(
+        ncbi_params({"db": "clinvar", "term": term, "retmode": "json", "retmax": len(clean)})
+    )
+    try:
+        ncbi_wait()
+        r = requests.get(search_url, timeout=45, verify=certifi.where())
+        if _rate_limited(r.status_code):
+            return [_rate_limited_result(rs) for rs in clean]
+        if r.status_code != 200:
+            return [_not_found(rs) for rs in clean]
+        search_payload = r.json()
+    except Exception:
+        return [_get_clinvar_http(rs) for rs in clean]
+
+    uids = (search_payload.get("esearchresult") or {}).get("idlist") or []
+    if not uids:
+        return [_not_found(rs) for rs in clean]
+
+    ncbi_wait()
+    summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
+        ncbi_params({"db": "clinvar", "id": ",".join(uids), "retmode": "json"})
+    )
+    try:
+        r2 = requests.get(summary_url, timeout=45, verify=certifi.where())
+        if _rate_limited(r2.status_code):
+            return [_rate_limited_result(rs) for rs in clean]
+        if r2.status_code != 200:
+            return [_not_found(rs) for rs in clean]
+        summary_payload = r2.json()
+    except Exception:
+        return [_get_clinvar_http(rs) for rs in clean]
+
+    result_root = summary_payload.get("result") or {}
+    by_rsid: dict[str, dict] = {}
+    unmatched_uids: list[tuple[str, dict]] = []
+    for uid in uids:
+        block = result_root.get(uid) or {}
+        if not isinstance(block, dict):
+            continue
+        matched = _match_rsid_in_block(block, clean)
+        if matched:
+            by_rsid[matched] = _variant_from_summary(uid, block, matched)
+        else:
+            unmatched_uids.append((uid, block))
+
+    remaining = [rs for rs in clean if rs not in by_rsid]
+    for (uid, block), rs in zip(unmatched_uids, remaining):
+        by_rsid[rs] = _variant_from_summary(uid, block, rs)
+    for rs in clean:
+        if rs not in by_rsid:
+            by_rsid[rs] = _not_found(rs)
+    return [by_rsid[rs] for rs in clean]
+
+
 def _get_clinvar_http(rsid: str) -> dict:
     """One rsID via NCBI esearch + esummary (sync, ~2 HTTP round-trips)."""
     rs = rsid.strip()
@@ -194,14 +283,24 @@ def fetch_clinvar(rsids: list[str] | str | None = None, **_kwargs: Any) -> dict[
         }
     seq = [rsids] if isinstance(rsids, str) else list(rsids)
     rs_list = [str(raw).strip() for raw in seq if str(raw).strip()]
+    max_rs = int(os.getenv("CLINVAR_MAX_RSIDS", "16"))
+    if max_rs > 0 and len(rs_list) > max_rs:
+        rs_list = rs_list[:max_rs]
 
     out: list[dict] = []
     errors: list[str] = []
-    for rs in rs_list:
-        try:
-            out.append(_get_clinvar_http(rs))
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{rs}:{exc}")
+    chunk = max(1, int(os.getenv("CLINVAR_BATCH_SIZE", "6")))
+    try:
+        for i in range(0, len(rs_list), chunk):
+            batch = rs_list[i : i + chunk]
+            out.extend(_batch_clinvar_http(batch))
+    except Exception as exc:  # noqa: BLE001
+        errors.append(str(exc))
+        for rs in rs_list:
+            try:
+                out.append(_get_clinvar_http(rs))
+            except Exception as inner:  # noqa: BLE001
+                errors.append(f"{rs}:{inner}")
 
     if errors:
         meta["status"] = "partial" if out else "error"

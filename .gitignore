@@ -21,6 +21,7 @@ dist/
 build/
 .next/
 .vite/
+output/patient_contexts/
 *.log
 .idea/
 .vscode/
