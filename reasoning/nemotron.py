@@ -5,15 +5,22 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import sys
 from pathlib import Path
 from typing import Any, Callable
 
 import aiohttp
+import certifi
 import requests
 from dotenv import load_dotenv
 
 from reasoning.prompts import build_agentic_system_prompt, build_system_prompt
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """macOS Python.org installer ships without root CAs; pin certifi's bundle."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", override=True)
@@ -64,18 +71,26 @@ async def run_nemotron(context_prompt: str) -> str:
 
     try:
         timeout = aiohttp.ClientTimeout(total=120)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        connector = aiohttp.TCPConnector(ssl=_ssl_context())
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             async with session.post(OPENROUTER_URL, headers=headers, json=payload) as resp:
                 if resp.status >= 400:
+                    body = await resp.text()
+                    _log(f"[run_nemotron] HTTP {resp.status}: {body[:200]}")
                     return ERROR_TEXT
                 data = await resp.json()
-        content = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+
+        message = data.get("choices", [{}])[0].get("message", {}) or {}
+        content = (message.get("content") or "").strip()
+        if not content:
+            content = (message.get("reasoning") or "").strip()
         if not content:
             return ERROR_TEXT
         if _looks_like_planning_text(content):
             return _final_brief_draft_from_context(context_prompt) or content
         return content
-    except Exception:
+    except Exception as exc:
+        _log(f"[run_nemotron] exception: {exc!r}")
         return ERROR_TEXT
 
 
@@ -325,6 +340,7 @@ def _call_ollama(messages: list[dict[str, str]]) -> str:
             "options": {"temperature": 0.1},
         },
         timeout=120,
+        verify=certifi.where(),
     )
     response.raise_for_status()
     body = response.json()
@@ -346,6 +362,7 @@ def _call_nim(messages: list[dict[str, str]]) -> str:
             "response_format": {"type": "json_object"},
         },
         timeout=120,
+        verify=certifi.where(),
     )
     response.raise_for_status()
     body = response.json()

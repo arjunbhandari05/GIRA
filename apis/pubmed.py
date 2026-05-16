@@ -1,9 +1,15 @@
 """PubMed lookup via NCBI E-utilities."""
 
 import os
+import ssl
 from urllib.parse import urlencode
 
 import aiohttp
+import certifi
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 PUBMED_STATIC = {
     ("TCF7L2", "metformin"): [
@@ -68,6 +74,7 @@ def _params(extra: dict) -> dict:
 
 
 async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
+    ssl_kwargs = {"ssl": _ssl_context()}
     try:
         search_url = BASE_URL + "esearch.fcgi?" + urlencode(
             _params(
@@ -79,7 +86,7 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
                 }
             )
         )
-        async with session.get(search_url) as resp:
+        async with session.get(search_url, **ssl_kwargs) as resp:
             if resp.status != 200:
                 return []
             search_payload = await resp.json()
@@ -98,7 +105,7 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
                 }
             )
         )
-        async with session.get(fetch_url) as resp:
+        async with session.get(fetch_url, **ssl_kwargs) as resp:
             if resp.status == 200:
                 try:
                     fetch_payload = await resp.json(content_type=None)
@@ -117,7 +124,7 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
                 }
             )
         )
-        async with session.get(summary_url) as resp:
+        async with session.get(summary_url, **ssl_kwargs) as resp:
             if resp.status != 200:
                 return [{"pmid": pmid, "title": "", "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"} for pmid in pmids]
             summary_payload = await resp.json()

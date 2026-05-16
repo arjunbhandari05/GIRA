@@ -2,9 +2,15 @@
 
 import asyncio
 import os
+import ssl
 from urllib.parse import urlencode
 
 import aiohttp
+import certifi
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 CLINVAR_STATIC = {
     "rs7903146": {"clinical_significance": "risk factor", "condition": "Type 2 diabetes mellitus susceptibility"},
@@ -55,11 +61,12 @@ def _rate_limited_result(rsid: str) -> dict:
 
 
 async def get_clinvar(rsid: str, session: aiohttp.ClientSession) -> dict:
+    ssl_kwargs = {"ssl": _ssl_context()}
     try:
         search_url = BASE_URL + "esearch.fcgi?" + urlencode(
             _params({"db": "clinvar", "term": f"{rsid}[rs]", "retmode": "json"})
         )
-        async with session.get(search_url) as resp:
+        async with session.get(search_url, **ssl_kwargs) as resp:
             if _rate_limited(resp.status):
                 return _rate_limited_result(rsid)
             if resp.status != 200:
@@ -76,7 +83,7 @@ async def get_clinvar(rsid: str, session: aiohttp.ClientSession) -> dict:
         summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
             _params({"db": "clinvar", "id": uid, "retmode": "json"})
         )
-        async with session.get(summary_url) as resp:
+        async with session.get(summary_url, **ssl_kwargs) as resp:
             if _rate_limited(resp.status):
                 return _rate_limited_result(rsid)
             if resp.status != 200:

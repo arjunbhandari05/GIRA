@@ -13,9 +13,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import ssl
 from typing import Dict, List, Tuple
 
 import aiohttp
+import certifi
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 logger = logging.getLogger(__name__)
 
@@ -135,11 +141,12 @@ async def _fetch_rxnorm_async(meds: List[str]) -> List[dict]:
         return []
 
     timeout = aiohttp.ClientTimeout(total=10)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     resolved: Dict[str, Tuple[str, str]] = {}
     interactions: List[dict] = []
 
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             for med in clean:
                 rxcui = await _resolve_rxcui(session, med)
                 if rxcui:

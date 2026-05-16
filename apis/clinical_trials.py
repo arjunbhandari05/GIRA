@@ -10,10 +10,16 @@ import asyncio
 import json
 import logging
 import math
+import ssl
 from typing import Dict, List, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
+import certifi
+
+
+def _ssl_context() -> ssl.SSLContext:
+    return ssl.create_default_context(cafile=certifi.where())
 
 TRIAL_STATIC = [
     {
@@ -95,9 +101,10 @@ def fetch_trials(
 async def fetch_trials_async(zip_code: str, genes: List[str]) -> List[dict]:
     """Live ClinicalTrials.gov v2 query. Used by FastAPI /apis path."""
     timeout = aiohttp.ClientTimeout(total=50)
+    connector = aiohttp.TCPConnector(ssl=_ssl_context())
     results: List[dict] = []
     try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             params = {
                 "query.cond": "type 2 diabetes",
                 "filter.overallStatus": "RECRUITING",
