@@ -326,11 +326,11 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
       <div className="border border-[#E8E6F0] rounded-lg bg-white overflow-hidden">
         <div className="px-5 py-4 border-b border-[#E8E6F0] flex items-center justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Agent pipeline</p>
+            <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">GIRA pipeline</p>
             <p className="text-[13px] text-[#6B6778]">
               {brief?._backend
-                ? `Backend: ${brief._backend}`
-                : "Parallel tool pipeline + brief assembly"}
+                ? `Engine: ${brief._backend}`
+                : "Parallel evidence gathering + clinical brief"}
               {brief?.cached ? " · cached" : ""}
             </p>
           </div>
@@ -340,7 +340,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
             className="flex items-center gap-2 px-4 py-2 border border-[#5B3FD4] text-[#5B3FD4] bg-white rounded-md text-[13px] font-medium hover:bg-[#5B3FD4] hover:text-white transition-colors disabled:opacity-50 shrink-0"
           >
             {pipelineRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {pipelineRunning ? "Generating…" : pipelineComplete ? "Regenerate brief" : "Generate brief"}
+            {pipelineRunning ? "Generating…" : pipelineComplete ? "Regenerate GIRA brief" : "Generate GIRA brief"}
           </button>
         </div>
 
@@ -374,7 +374,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
             <motion.div className="text-[#4A4757]">Checking cached brief…</motion.div>
           ) : logLines.length === 0 ? (
             <div className="text-[#4A4757]">
-              Click &quot;Generate brief&quot; to run tools in parallel (usually 1–3 min)
+              Click &quot;Generate GIRA brief&quot; to run tools in parallel (usually 1–3 min)
             </div>
           ) : (
             <>
@@ -398,7 +398,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
               {pipelineRunning && (
                 <div className="text-[#4A4757] mt-1 animate-pulse">
                   <span className="text-[#4A4757] mr-3">[···]</span>
-                  Nemotron working…
+                  GIRA working…
                 </div>
               )}
             </>

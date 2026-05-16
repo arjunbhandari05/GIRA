@@ -60,7 +60,7 @@ export default function Login({ onLogin }: LoginProps) {
                   <Stethoscope className="w-[18px] h-[18px] text-[#5B3FD4]" />
                   <div>
                     <h3 className="font-semibold text-[15px] text-[#0D0B14]">Healthcare Provider</h3>
-                    <p className="text-[13px] text-[#9895A8]">Create patients and run clinical briefs</p>
+                    <p className="text-[13px] text-[#9895A8]">Create patients and run GIRA clinical briefs</p>
                   </div>
                 </div>
                 <ArrowRight className="w-5 h-5 text-[#C4C1D4] group-hover:text-[#5B3FD4] transition-colors" />
@@ -135,7 +135,7 @@ export default function Login({ onLogin }: LoginProps) {
           animate={{ opacity: 1 }}
           transition={{ delay: 0.4, duration: 0.5 }}
         >
-          Powered by Nemotron
+          Powered by GIRA
         </motion.p>
       </div>
     </motion.div>

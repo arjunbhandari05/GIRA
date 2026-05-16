@@ -235,7 +235,7 @@ function summarizeTraceResult(step: TraceStep): string {
   }
 }
 
-/** Human-readable one-liner for a Nemotron tool step (terminal + tool trace). */
+/** Human-readable one-liner for a GIRA pipeline tool step (terminal + tool trace). */
 export function formatTraceStep(step: TraceStep): string {
   if (step.agent_wide_fallback && typeof step.detail === "string") {
     return step.detail
@@ -246,7 +246,7 @@ export function formatTraceStep(step: TraceStep): string {
     (step.partial || step.status === "partial") &&
     (step.result_summary as { status?: string } | undefined)?.status === "assembling"
   ) {
-    return "Assembling clinician brief (rule-based, no LLM)…"
+    return "Assembling clinician brief with GIRA…"
   }
 
   const label = TOOL_LABELS[step.tool] || step.tool.replace(/_/g, " ")
@@ -273,7 +273,7 @@ export function traceStepToLogLine(step: TraceStep, elapsedSec: number): LogLine
 export function traceToLogLines(trace: TraceStep[], startMs?: number): LogLine[] {
   const t0 = startMs ?? Date.now()
   const lines: LogLine[] = [
-    { timestamp: "00:00.0", text: "Starting Nemotron agent…", type: "info" },
+    { timestamp: "00:00.0", text: "Starting GIRA brief pipeline…", type: "info" },
   ]
   trace.forEach((step) => {
     const elapsed = (Date.now() - t0) / 1000

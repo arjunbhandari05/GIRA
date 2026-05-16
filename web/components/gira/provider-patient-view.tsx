@@ -141,7 +141,7 @@ export default function ProviderPatientView({
 
       <footer className="border-t border-[#E8E6F0] bg-white py-4 px-6">
         <p className="text-[11px] text-[#C4C1D4] text-center">
-          For clinical decision support only — physician review required
+          GIRA · For clinical decision support only — physician review required
         </p>
       </footer>
     </div>

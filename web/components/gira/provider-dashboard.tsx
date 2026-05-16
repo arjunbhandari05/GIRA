@@ -269,7 +269,7 @@ export default function ProviderDashboard({
         </div>
 
         <p className="text-[11px] text-[#C4C1D4] text-center mt-12">
-          All patients in the roster · upload data per patient on Setup
+          GIRA · All patients in the roster · upload data per patient on Setup
         </p>
       </main>
     </div>

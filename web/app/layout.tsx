@@ -10,7 +10,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: 'GIRA Rx · Genomic Inference Rx Agent',
-  description: 'Pharmacogenomic clinical decision support system for personalized medication management',
+  description: 'GIRA — pharmacogenomic clinical decision support for personalized medication management',
 }
 
 export default function RootLayout({

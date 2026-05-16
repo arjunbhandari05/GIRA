@@ -158,7 +158,7 @@ export default function SetupTab({ patientId, patientName, onAssetsUpdated }: Se
           <span className="font-mono text-[12px] ml-2 text-[#9895A8]">{patientId}</span>
         </p>
         <p className="text-[13px] text-[#6B6778] mt-2">
-          Upload each data source for this patient. When ready, open the Brief tab and generate the agent brief.
+          Upload each data source for this patient. When ready, open the Brief tab and generate the GIRA brief.
         </p>
       </div>
 

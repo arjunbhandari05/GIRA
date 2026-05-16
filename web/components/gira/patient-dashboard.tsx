@@ -176,7 +176,7 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
         )}
 
         <p className="text-[11px] text-[#C4C1D4] text-center pt-4">
-          Always consult your doctor before changing medications.
+          GIRA · Always consult your doctor before changing medications.
         </p>
       </main>
     </div>
