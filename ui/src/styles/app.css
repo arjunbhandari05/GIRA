@@ -95,3 +95,171 @@ h1 { letter-spacing: -0.04em; }
 .full-brief-link { display: block; text-align: center; text-decoration: none; color: #c7d2fe; background: #13131a; border: 1px solid #262636; border-radius: 14px; padding: 14px; font-weight: 900; }
 .empty-card { color: #94a3b8; }
 @media (max-width: 1100px) { .doctor-page { grid-template-columns: 1fr; } .left-panel, .center-panel, .right-panel { min-height: auto; } }
+
+/* ──────────────────────────────────────────────────────────────────────── */
+/* Agentic brief                                                            */
+/* ──────────────────────────────────────────────────────────────────────── */
+
+.agent-btn { background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+
+.agent-brief { display: grid; gap: 16px; padding: 4px; }
+
+.agent-brief-header {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  border-bottom: 1px solid #1f1f2c; padding-bottom: 12px;
+}
+.agent-brief-header h2 { margin: 0 0 4px 0; font-size: 1.6rem; }
+.agent-brief-sub { margin: 0; color: #94a3b8; font-size: 0.95rem; max-width: 60ch; }
+
+.agent-pill {
+  font-size: 0.72rem; padding: 4px 10px; border-radius: 999px;
+  text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+}
+.agent-pill.cached { background: #1e293b; color: #94a3b8; }
+.agent-pill.fresh { background: #134e4a; color: #5eead4; }
+
+.agent-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.agent-card {
+  background: #0f0f17; border: 1px solid #1f1f2c; border-radius: 14px;
+  padding: 16px; display: grid; gap: 10px;
+}
+.agent-card header {
+  font-weight: 700; font-size: 0.95rem; color: #e2e8f0;
+  display: flex; align-items: center; gap: 8px;
+  padding-bottom: 8px; border-bottom: 1px solid #1a1a26;
+}
+.agent-card .empty { color: #64748b; font-size: 0.9rem; }
+
+.agent-card.tone-good { border-color: #134e4a; }
+.agent-card.tone-good > header { color: #5eead4; }
+.agent-card.tone-warn { border-color: #78350f; }
+.agent-card.tone-warn > header { color: #fbbf24; }
+.agent-card.tone-bad { border-color: #7f1d1d; background: #1a0f12; }
+.agent-card.tone-bad > header { color: #fca5a5; }
+
+/* Recommendation card */
+.agent-card.recommendation .rec-switch {
+  display: flex; align-items: center; gap: 14px; padding: 8px 0;
+}
+.agent-card.recommendation .rec-switch > div {
+  display: grid; gap: 4px; flex: 1;
+  background: #15151f; padding: 12px; border-radius: 10px;
+}
+.agent-card.recommendation .rec-switch span { color: #94a3b8; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.agent-card.recommendation .rec-switch strong { font-size: 1.1rem; }
+.agent-card.recommendation .rec-arrow { font-size: 1.4rem; color: #818cf8; }
+.rec-rationale { margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 0.92rem; }
+.rec-rationale li { margin-bottom: 6px; line-height: 1.45; }
+.rec-pmids { display: flex; flex-wrap: wrap; gap: 8px; }
+.rec-pmids a {
+  background: #1e1e2c; color: #c7d2fe; padding: 4px 10px; border-radius: 6px;
+  font-size: 0.78rem; text-decoration: none; font-weight: 600;
+}
+.rec-pmids a:hover { background: #2a2a3c; }
+
+/* Glucose card */
+.glucose-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.g-stat { display: grid; gap: 4px; padding: 10px; background: #15151f; border-radius: 8px; }
+.g-stat span { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; }
+.g-stat strong { font-size: 1.1rem; color: #e2e8f0; }
+.g-stat.big strong { font-size: 1.8rem; }
+.g-stat em { font-style: normal; font-size: 0.75rem; font-weight: 700; }
+.g-stat em.tone-good { color: #5eead4; }
+.g-stat em.tone-warn { color: #fbbf24; }
+.g-stat em.tone-bad { color: #fca5a5; }
+
+/* Wearable card */
+.wearable-grid {
+  display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+.w-stat { display: grid; gap: 4px; padding: 10px; background: #15151f; border-radius: 8px; }
+.w-stat span { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; }
+.w-stat strong { font-size: 1rem; }
+.w-stat em { color: #94a3b8; font-style: normal; font-size: 0.78rem; }
+
+/* SNP table */
+.agent-card.snps { padding-top: 12px; }
+.snp-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.snp-table th { text-align: left; color: #94a3b8; font-weight: 600; padding: 8px 6px; border-bottom: 1px solid #1f1f2c; }
+.snp-table td { padding: 8px 6px; border-bottom: 1px solid #14141d; vertical-align: top; }
+.snp-table tr:last-child td { border-bottom: none; }
+.snp-table .mono { font-family: ui-monospace, SF Mono, monospace; }
+
+/* Trials + citations */
+.trial-list, .citation-list, .safety-list-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.trial-list li, .citation-list li {
+  padding: 10px; background: #15151f; border-radius: 8px; font-size: 0.88rem;
+}
+.trial-list a, .citation-list a { color: #c7d2fe; text-decoration: none; font-weight: 700; }
+.trial-list a:hover, .citation-list a:hover { text-decoration: underline; }
+.trial-meta { color: #94a3b8; font-size: 0.78rem; margin-top: 4px; }
+
+/* Safety card list */
+.safety-card-row {
+  padding: 10px; background: #15151f; border-radius: 8px; display: grid; gap: 4px;
+  border-left: 3px solid #6b7280;
+}
+.safety-card-row.critical { border-left-color: #ef4444; background: #1a0f12; }
+.safety-card-row.warning { border-left-color: #f59e0b; background: #1a1610; }
+.safety-card-row .row-head { font-size: 0.85rem; color: #cbd5e1; }
+.safety-card-row .mono { font-family: ui-monospace, SF Mono, monospace; }
+.safety-card-row small { color: #94a3b8; }
+.safety-card-row em.prescribed { color: #fca5a5; font-style: normal; font-weight: 700; font-size: 0.8rem; }
+
+/* Tool trace */
+.tool-trace {
+  background: #0c0c14; border: 1px solid #1f1f2c; border-radius: 14px;
+  padding: 16px; display: grid; gap: 10px;
+}
+.tool-trace.empty { color: #64748b; }
+.tool-trace-header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.tool-trace-header strong { font-size: 1.1rem; }
+.tt-meta { color: #94a3b8; font-size: 0.82rem; }
+.tt-meta em { color: #c7d2fe; font-style: normal; font-weight: 600; }
+
+.tt-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; counter-reset: tt; }
+.tt-step {
+  background: #14141d; border: 1px solid #1f1f2c; border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+}
+.tt-step:hover { background: #1a1a26; }
+.tt-step.open { border-color: #4338ca; background: #161629; }
+.tt-step.fallback { border-style: dashed; opacity: 0.85; }
+
+.tt-row { display: flex; align-items: center; gap: 12px; }
+.tt-num { color: #6366f1; font-weight: 700; min-width: 32px; }
+.tt-name { color: #e2e8f0; font-weight: 600; flex: 1; }
+.tt-tool-id { color: #64748b; font-family: ui-monospace, SF Mono, monospace; font-size: 0.78rem; }
+.tt-pill {
+  background: #1e1e2c; color: #94a3b8; font-size: 0.7rem;
+  padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+.tt-body { display: grid; gap: 10px; padding-top: 10px; margin-top: 8px; border-top: 1px dashed #1f1f2c; }
+.tt-section { display: grid; gap: 4px; }
+.tt-label { color: #94a3b8; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.tt-pre {
+  background: #08080d; border: 1px solid #1f1f2c; border-radius: 6px;
+  padding: 8px; font-size: 0.78rem; overflow-x: auto; color: #cbd5e1; margin: 0;
+}
+.tt-line { font-size: 0.85rem; color: #cbd5e1; }
+
+.tt-glucose { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.tt-glucose > div { background: #08080d; padding: 8px; border-radius: 6px; display: grid; gap: 2px; }
+.tt-glucose span { color: #94a3b8; font-size: 0.7rem; }
+.tt-glucose strong { font-size: 0.95rem; }
+
+.tt-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tt-flag {
+  font-size: 0.78rem; padding: 4px 10px; border-radius: 6px;
+  background: #1e1e2c; color: #cbd5e1;
+}
+.tt-flag.critical { background: #1a0f12; color: #fca5a5; }
+.tt-flag.warning { background: #1a1610; color: #fbbf24; }

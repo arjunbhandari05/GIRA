@@ -8,8 +8,16 @@ const api = axios.create({ baseURL: BASE, timeout: 300000 });
 
 export const getPatients = () => api.get('/patients');
 export const getWearable = id => api.get(`/wearable/${encodeURIComponent(id)}`);
+export const getGlucose = id => api.get(`/glucose/${encodeURIComponent(id)}`);
 export const getBrief = id => api.get(`/brief/${encodeURIComponent(id)}`);
 export const getSafety = id => api.get(`/safety/${encodeURIComponent(id)}`);
+export const getAgentBrief = (id, { refresh = false } = {}) =>
+  api.get(`/agent_brief/${encodeURIComponent(id)}`, {
+    params: refresh ? { refresh: 'true' } : {},
+    timeout: 600000,
+  });
+export const clearAgentBrief = id =>
+  api.delete(`/agent_brief/${encodeURIComponent(id)}`);
 export const uploadGenome = file => {
   const fd = new FormData();
   fd.append('file', file);

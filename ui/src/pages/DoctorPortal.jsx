@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getBrief, getPatients, getSafety, getWearable, uploadGenome } from '../api.js';
+import {
+  getAgentBrief,
+  getBrief,
+  getPatients,
+  getSafety,
+  getWearable,
+  uploadGenome,
+} from '../api.js';
+import AgentBrief from '../components/AgentBrief.jsx';
 import BriefRenderer from '../components/BriefRenderer.jsx';
 import FileDropZone from '../components/FileDropZone.jsx';
 import MetricCards from '../components/MetricCards.jsx';
@@ -23,9 +31,11 @@ export default function DoctorPortal() {
   const [wearable, setWearable] = useState(null);
   const [safetyFlags, setSafetyFlags] = useState([]);
   const [briefResponse, setBriefResponse] = useState(null);
+  const [agentBrief, setAgentBrief] = useState(null);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [loadingWearable, setLoadingWearable] = useState(false);
   const [loadingBrief, setLoadingBrief] = useState(false);
+  const [loadingAgent, setLoadingAgent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
@@ -65,6 +75,7 @@ export default function DoctorPortal() {
     setWearable(null);
     setSafetyFlags([]);
     setBriefResponse(null);
+    setAgentBrief(null);
     setLoadingWearable(true);
     setError('');
     Promise.all([getWearable(selectedId), getSafety(selectedId)])
@@ -118,6 +129,22 @@ export default function DoctorPortal() {
     }
   };
 
+  const runAgent = async ({ refresh = false } = {}) => {
+    if (!selectedId) return;
+    setLoadingAgent(true);
+    if (refresh) setAgentBrief(null);
+    setError('');
+    try {
+      const { data } = await getAgentBrief(selectedId, { refresh });
+      setAgentBrief(data);
+    } catch (err) {
+      console.error(err);
+      setError('Agentic brief failed. Check that OPENROUTER_API_KEY is set.');
+    } finally {
+      setLoadingAgent(false);
+    }
+  };
+
   const flags = briefResponse?.safety_flags || safetyFlags;
 
   return (
@@ -160,12 +187,40 @@ export default function DoctorPortal() {
           </div>
           <div className="header-actions">
             {selectedId && <Link className="link-button" to={`/patient/${selectedId}`}>Patient view</Link>}
-            <button className="primary-btn" disabled={!selectedId || loadingBrief} onClick={generateBrief}>Generate Brief</button>
+            <button
+              className="primary-btn"
+              disabled={!selectedId || loadingBrief || loadingAgent}
+              onClick={generateBrief}
+            >
+              Generate Brief
+            </button>
+            <button
+              className="primary-btn agent-btn"
+              disabled={!selectedId || loadingAgent || loadingBrief}
+              onClick={() => runAgent({ refresh: false })}
+              title="Runs Nemotron in a tool-calling loop. Cached after first run."
+            >
+              🤖 Run Agent
+            </button>
+            {agentBrief ? (
+              <button
+                className="link-button"
+                disabled={loadingAgent}
+                onClick={() => runAgent({ refresh: true })}
+                title="Discard cache and run the agent again"
+              >
+                ↻ Re-run agent
+              </button>
+            ) : null}
           </div>
         </section>
 
         {loadingBrief ? (
           <Spinner full label="Analyzing genomic profile… ~60 seconds" />
+        ) : loadingAgent ? (
+          <Spinner full label="Nemotron is calling tools… first run can take 1–4 min" />
+        ) : agentBrief ? (
+          <AgentBrief brief={agentBrief} patient={selectedPatient} />
         ) : (
           <>
             {selectedId && <SafetyBanners flags={flags} />}

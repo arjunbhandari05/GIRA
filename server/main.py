@@ -17,13 +17,16 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from agent.memory import read as agent_read_patient
+from agent.tools import TOOL_DEFINITIONS
 from apis.clinvar import get_clinvar
 from apis.pharmgkb import get_pharmgkb
 from apis.pubmed import get_pubmed
 from output.brief_builder import build_brief
+from parsers.glucose_client import load_glucose
 from parsers.snp_parser import parse_genome
 from parsers.whoop_client import get_whoop_analytics
-from reasoning.nemotron import run_nemotron
+from reasoning.nemotron import run_nemotron, run_with_tools
 from reasoning.prompts import build_context_prompt
 from reasoning.safety_flags import check_safety_flags
 
@@ -46,6 +49,25 @@ def _db_path() -> str:
     if not os.path.isabs(path):
         return str(ROOT / path)
     return path
+
+
+def _ensure_agent_briefs_table() -> None:
+    """Cache table for agentic briefs so the UI doesn't pay the LLM cost twice."""
+    conn = sqlite3.connect(_db_path())
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_briefs (
+            patient_id TEXT PRIMARY KEY,
+            generated_at TEXT,
+            brief_json TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+_ensure_agent_briefs_table()
 
 
 def _row_to_patient(row: sqlite3.Row) -> dict:
@@ -153,6 +175,12 @@ def get_wearable(patient_id: str) -> dict:
         return {"error": "no wearable data"}
 
 
+@app.get("/glucose/{patient_id}")
+def get_glucose(patient_id: str) -> dict:
+    """Synthetic CGM dataset summary — TIR, GMI, CV, trend, hypos."""
+    return load_glucose(patient_id)
+
+
 @app.get("/safety/{patient_id}")
 def get_safety(patient_id: str) -> list:
     patient, snps = _load_patient_and_snps(patient_id)
@@ -226,6 +254,76 @@ async def get_brief(patient_id: str) -> dict:
         "patient": patient,
         "wearable": wearable,
     }
+
+
+def _read_cached_agent_brief(patient_id: str) -> dict | None:
+    conn = sqlite3.connect(_db_path())
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT generated_at, brief_json FROM agent_briefs WHERE patient_id = ?",
+        (patient_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        brief = json.loads(row[1])
+    except (TypeError, json.JSONDecodeError):
+        return None
+    brief["generated_at"] = row[0]
+    brief["cached"] = True
+    return brief
+
+
+def _write_cached_agent_brief(patient_id: str, brief: dict) -> None:
+    conn = sqlite3.connect(_db_path())
+    conn.execute(
+        """
+        INSERT INTO agent_briefs (patient_id, generated_at, brief_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(patient_id) DO UPDATE SET
+            generated_at = excluded.generated_at,
+            brief_json = excluded.brief_json
+        """,
+        (patient_id, brief.get("generated_at") or "", json.dumps(brief, default=str)),
+    )
+    conn.commit()
+    conn.close()
+
+
+@app.get("/agent_brief/{patient_id}")
+async def get_agent_brief(patient_id: str, refresh: bool = False) -> dict:
+    """
+    Run the Nemotron tool-calling agent for this patient. Returns the
+    structured brief plus `_trace` (every tool the model called, in order).
+    Cached in the agent_briefs table so the second click is instant; pass
+    ?refresh=true to force a re-run.
+    """
+    if not refresh:
+        cached = _read_cached_agent_brief(patient_id)
+        if cached:
+            return cached
+
+    patient = agent_read_patient(patient_id)
+    if not patient:
+        return {"error": f"patient {patient_id} not found"}
+
+    brief = await run_with_tools(patient_id, patient, TOOL_DEFINITIONS)
+    if isinstance(brief, dict):
+        brief.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
+        brief["cached"] = False
+        _write_cached_agent_brief(patient_id, brief)
+    return brief
+
+
+@app.delete("/agent_brief/{patient_id}")
+def delete_agent_brief(patient_id: str) -> dict:
+    conn = sqlite3.connect(_db_path())
+    conn.execute("DELETE FROM agent_briefs WHERE patient_id = ?", (patient_id,))
+    conn.commit()
+    conn.close()
+    return {"deleted": patient_id}
 
 
 def _new_upload_patient_id() -> str:
