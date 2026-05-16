@@ -1,0 +1,44 @@
+{
+  "$schema": "openclaw.policy.v1",
+  "agent": "GlycoAgent",
+  "description": "Pharmacogenomic clinical decision support — strict guardrails on inference + memory access.",
+  "forbidden": [
+    "write_prescription",
+    "external_api_write",
+    "skip_safety_check",
+    "expose_patient_data",
+    "use_training_knowledge_to_fill_evidence_gaps"
+  ],
+  "required": [
+    "run_safety_flags",
+    "cite_every_claim",
+    "write_to_memory",
+    "physician_review_disclaimer"
+  ],
+  "inference": {
+    "temperature": 0.1,
+    "max_tokens": 2048,
+    "output": "json_only",
+    "stop_on_invalid_json": true,
+    "retry_on_invalid_json": 1
+  },
+  "memory": {
+    "engine": "sqlite",
+    "path_env": "MEMORY_DB_PATH",
+    "namespace": "patient_id",
+    "read_scope": ["self"],
+    "write_scope": ["self"]
+  },
+  "tools": [
+    "snp_parser",
+    "whoop_client",
+    "clinvar",
+    "pharmgkb",
+    "pubmed",
+    "clinical_trials",
+    "rxnorm",
+    "nemotron",
+    "deliver"
+  ],
+  "disclaimer": "All outputs require licensed physician review before any clinical action."
+}
