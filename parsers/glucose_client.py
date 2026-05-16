@@ -36,11 +36,72 @@ def _use_synthetic() -> bool:
     )
 
 
-def _resolve_path(patient_id: str) -> Path:
-    filename = PATIENT_FILES.get(patient_id)
-    if not filename:
-        filename = f"{patient_id.lower().replace('-', '_')}.json"
-    return GLUCOSE_DIR / filename
+def _glucose_candidate_paths(patient_id: str) -> list[Path]:
+    pid = patient_id.strip()
+    slug = pid.lower().replace("-", "_")
+    candidates = [
+        GLUCOSE_DIR / f"{slug}.json",
+        GLUCOSE_DIR / f"{pid.lower()}.json",
+    ]
+    legacy = PATIENT_FILES.get(pid)
+    if legacy:
+        candidates.append(GLUCOSE_DIR / legacy)
+    seen: set[str] = set()
+    out: list[Path] = []
+    for path in candidates:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def _coerce_glucose_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    """Accept flat demo uploads and nested build_glucose_data.py output."""
+    if isinstance(raw.get("summary"), dict) and raw.get("daily_summaries"):
+        return raw
+
+    daily_avgs = raw.get("daily_avg_glucose") or []
+    daily: list[dict[str, Any]] = []
+    if daily_avgs:
+        for i, val in enumerate(daily_avgs):
+            try:
+                avg = float(val)
+            except (TypeError, ValueError):
+                continue
+            daily.append(
+                {
+                    "day": i + 1,
+                    "avg_mgdl": avg,
+                    "hypoglycemic_events": int(raw.get("hypoglycemia_events") or 0)
+                    if i == 0
+                    else 0,
+                }
+            )
+
+    summary = dict(raw.get("summary") or {})
+    if not summary:
+        tir = raw.get("time_in_range_pct")
+        avg_glucose = raw.get("avg_glucose_mgdl")
+        if avg_glucose is None and daily:
+            avg_glucose = sum(d["avg_mgdl"] for d in daily) / len(daily)
+        if avg_glucose is None:
+            avg_glucose = raw.get("fasting_glucose_mg_dl")
+        summary = {
+            "time_in_range_pct": tir if tir is not None else 0,
+            "time_above_range_pct": raw.get("time_above_range_pct"),
+            "time_below_range_pct": raw.get("time_below_range_pct"),
+            "avg_glucose_mgdl": avg_glucose,
+            "gmi_pct": raw.get("gmi_pct") or raw.get("hba1c_pct"),
+            "cv_pct": raw.get("cv_pct"),
+        }
+
+    return {
+        **raw,
+        "patient_id": raw.get("patient_id"),
+        "summary": summary,
+        "daily_summaries": daily or raw.get("daily_summaries") or [],
+    }
 
 
 def load_glucose(patient_id: str) -> dict[str, Any]:
@@ -50,16 +111,21 @@ def load_glucose(patient_id: str) -> dict[str, Any]:
     if not _use_synthetic():
         return _fetch_libre_api(patient_id)
 
-    path = _resolve_path(patient_id)
-    if not path.exists():
+    path = None
+    for candidate in _glucose_candidate_paths(patient_id):
+        if candidate.is_file():
+            path = candidate
+            break
+    if path is None:
+        expected = _glucose_candidate_paths(patient_id)[0]
         return {
             "error": f"no glucose data for {patient_id}",
-            "expected_path": str(path),
+            "expected_path": str(expected),
             "controlled": False,
         }
     with path.open("r", encoding="utf-8") as handle:
         raw = json.load(handle)
-    return _parse(raw)
+    return _parse(_coerce_glucose_raw(raw))
 
 
 def _parse(raw: dict[str, Any]) -> dict[str, Any]:
@@ -106,6 +172,8 @@ def _parse(raw: dict[str, Any]) -> dict[str, Any]:
         "controlled": tir_pct >= 70,
         "first_week_avg_mgdl": round(first_avg, 1) if len(daily) >= 14 else None,
         "last_week_avg_mgdl": round(last_avg, 1) if len(daily) >= 14 else None,
+        "daily_summaries": daily,
+        "clinical_note": raw.get("clinical_note"),
     }
 
 

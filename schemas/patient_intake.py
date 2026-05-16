@@ -112,7 +112,23 @@ def normalize_intake(raw: dict[str, Any] | None, patient_id: str) -> dict[str, A
             )
     base["medications"] = meds_out
 
-    vitals = raw.get("vitals") if isinstance(raw.get("vitals"), dict) else {}
+    vitals = dict(raw.get("vitals")) if isinstance(raw.get("vitals"), dict) else {}
+    labs = raw.get("labs_last_visit") if isinstance(raw.get("labs_last_visit"), dict) else {}
+    if labs:
+        vitals.setdefault("hba1c", labs.get("hba1c"))
+        vitals.setdefault("fastingGlucose", labs.get("fasting_glucose") or labs.get("fastingGlucose"))
+        vitals.setdefault("egfr", labs.get("egfr"))
+    vitals_lv = raw.get("vitals_last_visit") if isinstance(raw.get("vitals_last_visit"), dict) else {}
+    if vitals_lv:
+        if vitals_lv.get("weight_kg") is not None:
+            vitals.setdefault("weight", f"{vitals_lv['weight_kg']} kg")
+        if vitals_lv.get("height_cm") is not None:
+            vitals.setdefault("height", f"{vitals_lv['height_cm']} cm")
+        sys_ = vitals_lv.get("bp_systolic")
+        dia_ = vitals_lv.get("bp_diastolic")
+        if sys_ is not None and dia_ is not None:
+            vitals.setdefault("bloodPressure", f"{sys_}/{dia_}")
+
     for key in base["vitals"]:
         base["vitals"][key] = str(vitals.get(key) or "").strip()
 
@@ -120,9 +136,37 @@ def normalize_intake(raw: dict[str, Any] | None, patient_id: str) -> dict[str, A
     base["sideEffects"] = _filter_options(raw.get("sideEffects"), SIDE_EFFECT_OPTIONS)
     base["comorbidities"] = _filter_options(raw.get("comorbidities"), COMORBIDITY_OPTIONS)
     base["familyHistory"] = _filter_options(raw.get("familyHistory"), FAMILY_HISTORY_OPTIONS)
-    base["clinicianNotes"] = str(raw.get("clinicianNotes") or "").strip()
+    base["clinicianNotes"] = str(
+        raw.get("clinicianNotes") or raw.get("chief_complaint") or ""
+    ).strip()
+
+    if raw.get("family_history") and not base["familyHistory"]:
+        fh_lines = [
+            str(x).strip() for x in (raw.get("family_history") or []) if str(x).strip()
+        ]
+        if fh_lines:
+            matched = _filter_options(
+                [s.split(":")[0].strip() for s in fh_lines if "diabetes" in s.lower()],
+                FAMILY_HISTORY_OPTIONS,
+            )
+            if matched:
+                base["familyHistory"] = matched
+            else:
+                base["clinicianNotes"] = (
+                    (base["clinicianNotes"] + "\n\n" if base["clinicianNotes"] else "")
+                    + "Family history: "
+                    + "; ".join(fh_lines)
+                ).strip()
 
     life = raw.get("lifestyle") if isinstance(raw.get("lifestyle"), dict) else {}
+    if life.get("exercise") and "activityLevel" not in life:
+        ex = str(life.get("exercise") or "").lower()
+        if "daily" in ex or "5x" in ex or "6x" in ex:
+            life = {**life, "activityLevel": "High"}
+        elif "3x" in ex or "4x" in ex:
+            life = {**life, "activityLevel": "Moderate"}
+        elif "walk" in ex or "1x" in ex or "2x" in ex:
+            life = {**life, "activityLevel": "Light"}
     base["lifestyle"]["activityLevel"] = (
         life.get("activityLevel") if life.get("activityLevel") in ACTIVITY_LEVELS else "Light"
     )

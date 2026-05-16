@@ -4,6 +4,7 @@ import asyncio
 import os
 import ssl
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlencode
 
@@ -191,19 +192,23 @@ def fetch_clinvar(rsids: list[str] | str | None = None, **_kwargs: Any) -> dict[
             "_meta": {**meta, "status": "empty", "detail": "No rsids provided."},
         }
     seq = [rsids] if isinstance(rsids, str) else list(rsids)
+    rs_list = [str(raw).strip() for raw in seq if str(raw).strip()]
 
     out: list[dict] = []
     errors: list[str] = []
-    for raw in seq:
-        rs = str(raw).strip()
-        if not rs:
-            continue
-        try:
-            row = _get_clinvar_http(rs)
-            out.append(row)
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{rs}:{exc}")
-        time.sleep(0.11)
+    max_workers = min(4, max(1, len(rs_list)))
+
+    def _one(rs: str) -> dict:
+        return _get_clinvar_http(rs)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_one, rs): rs for rs in rs_list}
+        for fut in as_completed(futures):
+            rs = futures[fut]
+            try:
+                out.append(fut.result())
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{rs}:{exc}")
 
     if errors:
         meta["status"] = "partial" if out else "error"

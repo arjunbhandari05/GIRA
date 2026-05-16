@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import sqlite3
+import string
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -126,6 +128,75 @@ def read(patient_id: str) -> dict[str, Any] | None:
     from parsers.intake_client import attach_intake_to_patient
 
     return attach_intake_to_patient(patient)
+
+
+def _new_patient_id() -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    suffix = "".join(random.choices(alphabet, k=6))
+    return f"PT-{suffix}"
+
+
+def create_patient(name: str) -> dict[str, Any]:
+    """Create an empty patient row (name only); genome and intake added later."""
+    ensure_schema()
+    patient_id = _new_patient_id()
+    display_name = (name or "").strip() or "New patient"
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO patients (
+            patient_id, name, zip, meds, next_appointment_iso,
+            snp_profile_json, parsed_at, intake_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            patient_id,
+            display_name,
+            "",
+            json.dumps([]),
+            "",
+            json.dumps({}),
+            None,
+            None,
+        ),
+    )
+    conn.commit()
+    conn.close()
+    row = read(patient_id)
+    return row or {"patient_id": patient_id, "name": display_name}
+
+
+def update_genome(patient_id: str, snp_profile: dict[str, Any]) -> dict[str, Any]:
+    """Attach parsed SNP profile to an existing patient."""
+    ensure_schema()
+    parsed_at = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE patients
+        SET snp_profile_json = ?, parsed_at = ?
+        WHERE patient_id = ?
+        """,
+        (json.dumps(snp_profile), parsed_at, patient_id),
+    )
+    if cur.rowcount == 0:
+        conn.close()
+        raise ValueError(f"patient {patient_id} not found")
+    conn.commit()
+    conn.close()
+    return {"patient_id": patient_id, "parsed_at": parsed_at, "snp_count": len(snp_profile)}
+
+
+def patient_exists(patient_id: str) -> bool:
+    ensure_schema()
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM patients WHERE patient_id = ?", (patient_id,))
+    found = cur.fetchone() is not None
+    conn.close()
+    return found
 
 
 def write_intake(patient_id: str, intake: dict[str, Any]) -> dict[str, Any]:

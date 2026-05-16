@@ -140,10 +140,23 @@ def _trace_step_record(
     return row
 
 
+def _emit_trace_step(
+    trace: list[dict[str, Any]],
+    step: dict[str, Any],
+    on_trace_step: Any | None,
+) -> None:
+    step["step"] = len(trace) + 1
+    trace.append(step)
+    if on_trace_step:
+        on_trace_step(dict(step))
+
+
 async def run_with_tools(
     patient_id: str,
     patient: dict[str, Any],
     tools: list[dict[str, Any]],
+    *,
+    on_trace_step: Any | None = None,
 ) -> dict[str, Any]:
     """
     Drive Nemotron through a tool-calling loop. The model emits one of:
@@ -215,7 +228,13 @@ async def run_with_tools(
         _log("[nemotron] no LLM reachable — using deterministic fallback plan")
         return _attach_trace(
             _deterministic_plan(
-                patient_id, patient, tools_by_name, findings, trace, run_reason="no_llm"
+                patient_id,
+                patient,
+                tools_by_name,
+                findings,
+                trace,
+                run_reason="no_llm",
+                on_trace_step=on_trace_step,
             ),
             trace,
             backend,
@@ -234,6 +253,7 @@ async def run_with_tools(
                     findings,
                     trace,
                     run_reason="model_error",
+                    on_trace_step=on_trace_step,
                 ),
                 trace,
                 backend,
@@ -280,8 +300,7 @@ async def run_with_tools(
                     forced,
                     auto_invoked=True,
                 )
-                tr["step"] = len(trace) + 1
-                trace.append(tr)
+                _emit_trace_step(trace, tr, on_trace_step)
                 findings["generate_brief"] = forced
                 return _attach_trace(forced, trace, backend)
             return _attach_trace(findings["generate_brief"], trace, backend)
@@ -339,8 +358,7 @@ async def run_with_tools(
         findings[name] = result
         call_counts[name] = call_counts.get(name, 0) + 1
         tr = _trace_step_record(name, _summarize_args(args), result, deterministic=False)
-        tr["step"] = len(trace) + 1
-        trace.append(tr)
+        _emit_trace_step(trace, tr, on_trace_step)
 
         if name == "check_safety_flags":
             safety_checked = True
@@ -369,6 +387,7 @@ async def run_with_tools(
             findings,
             trace,
             run_reason="max_iter",
+            on_trace_step=on_trace_step,
         ),
         trace,
         backend,
@@ -610,6 +629,11 @@ def _enrich_args(
         args.setdefault("current_meds", current_meds)
     elif name == "generate_brief":
         args.setdefault("all_findings", findings)
+        if "skip_pgx_synthesis" not in args:
+            args.setdefault(
+                "skip_pgx_synthesis",
+                os.getenv("AGENT_MODE", "parallel").strip().lower() == "parallel",
+            )
     return args
 
 
@@ -631,6 +655,177 @@ DETERMINISTIC_PLAN = [
     "generate_brief",
 ]
 
+PUBMED_PAIRS = [
+    ("TCF7L2", "metformin"),
+    ("TCF7L2", "semaglutide"),
+    ("SLCO1B1", "atorvastatin"),
+    ("CYP2C19", "clopidogrel"),
+]
+PRIMARY_GENES = ["TCF7L2", "SLC22A1", "SLCO1B1", "CYP2C19", "FTO"]
+PRIMARY_RSIDS = ["rs7903146", "rs622342", "rs4149056", "rs4244285", "rs9939609"]
+
+
+async def run_parallel_tool_plan(
+    patient_id: str,
+    patient: dict[str, Any],
+    tools: list[dict[str, Any]],
+    *,
+    on_trace_step: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """
+    Run the full brief tool suite with phased parallelism. Each tool emits a
+    trace step via on_trace_step as soon as it finishes (completion order in the log).
+    """
+    from parsers.intake_client import attach_intake_to_patient
+
+    patient = attach_intake_to_patient(patient)
+    tools_by_name = {t["name"]: t for t in tools}
+    trace: list[dict[str, Any]] = []
+    findings: dict[str, Any] = {
+        "patient": patient,
+        "get_patient_intake": {
+            "patient_id": patient_id,
+            "intake": patient.get("intake"),
+            "medications_flat": patient.get("current_meds") or [],
+        },
+    }
+    loop = asyncio.get_running_loop()
+
+    async def _run_tool(tool_name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any], Any]:
+        enriched = _enrich_args(tool_name, dict(args), findings, patient)
+        result = await loop.run_in_executor(
+            None, _execute_tool, tool_name, enriched, tools_by_name
+        )
+        return tool_name, enriched, result
+
+    async def _run_traced(
+        tool_name: str, args: dict[str, Any]
+    ) -> tuple[str, dict[str, Any], Any]:
+        tool_name, enriched, result = await _run_tool(tool_name, args)
+        rec = _trace_step_record(
+            tool_name, _summarize_args(enriched), result, deterministic=True
+        )
+        rec["parallel"] = True
+        _emit_trace_step(trace, rec, on_trace_step)
+        return tool_name, enriched, result
+
+    _log(f"[nemotron] parallel plan  patient={patient_id}")
+
+    # Phase 1 — foundation (parallel)
+    phase1 = await asyncio.gather(
+        _run_traced("get_snp_profile", {"patient_id": patient_id}),
+        _run_traced("get_patient_intake", {"patient_id": patient_id}),
+    )
+    for name, _args, result in phase1:
+        findings[name] = result
+
+    snp_profile = findings.get("get_snp_profile") or {}
+    rsids = PRIMARY_RSIDS or list(snp_profile.keys())
+    zip_code = patient.get("zip_code") or patient.get("zip", "")
+
+    # Phase 2 — evidence + wearables (all parallel; log lines appear as each completes)
+    phase2_specs: list[tuple[str, dict[str, Any]]] = [
+        ("fetch_clinvar", {"rsids": rsids}),
+        ("fetch_whoop", {"patient_id": patient_id}),
+        ("fetch_glucose", {"patient_id": patient_id}),
+        ("fetch_rxnorm", {}),
+    ]
+    for gene, drug in PUBMED_PAIRS:
+        phase2_specs.append(("fetch_pubmed", {"gene": gene, "drug": drug}))
+    for gene in PRIMARY_GENES:
+        phase2_specs.append(
+            ("fetch_trials", {"gene": gene, "zip_code": zip_code})
+        )
+
+    pubmed_articles: list[dict] = []
+    pubmed_meta: dict[str, Any] = {}
+    trials_acc: list[dict] = []
+    seen_nct: set[str] = set()
+    trials_meta: dict[str, Any] = {
+        "source": "clinicaltrials.gov",
+        "status": "ok",
+        "detail": None,
+    }
+
+    phase2_tasks = [
+        asyncio.create_task(_run_traced(name, args)) for name, args in phase2_specs
+    ]
+    for finished in asyncio.as_completed(phase2_tasks):
+        tool_name, _args, result = await finished
+        if tool_name == "fetch_pubmed":
+            if isinstance(result, dict):
+                pubmed_articles.extend(result.get("articles") or [])
+                pubmed_meta = result.get("_meta") or pubmed_meta
+            elif isinstance(result, list):
+                pubmed_articles.extend(result)
+        elif tool_name == "fetch_trials":
+            rows: list[dict] = []
+            if isinstance(result, dict):
+                rows = [t for t in (result.get("trials") or []) if isinstance(t, dict)]
+                meta = result.get("_meta") or {}
+                if meta.get("status") == "error":
+                    trials_meta["status"] = "error"
+                    trials_meta["detail"] = meta.get("detail")
+                elif meta.get("status") == "empty" and trials_meta.get("status") == "ok":
+                    trials_meta.setdefault("_empty_notes", []).append(
+                        str(meta.get("detail") or "")
+                    )
+            elif isinstance(result, list):
+                rows = [t for t in result if isinstance(t, dict)]
+            for t in rows:
+                nid = t.get("nct_id")
+                if nid and nid not in seen_nct:
+                    seen_nct.add(nid)
+                    trials_acc.append(t)
+        else:
+            findings[tool_name] = result
+
+    findings["fetch_pubmed"] = {"articles": pubmed_articles, "_meta": pubmed_meta}
+    if not trials_acc and trials_meta.get("status") == "ok":
+        trials_meta["status"] = "empty"
+        trials_meta["detail"] = (
+            "No recruiting trials from ClinicalTrials.gov matched the "
+            "gene + type-2-diabetes filters for the scanned genes."
+        )
+    findings["fetch_trials"] = {"trials": trials_acc[:8], "_meta": trials_meta}
+
+    # Phase 3 — safety (depends on SNP + meds)
+    _name, _args, safety = await _run_traced("check_safety_flags", {})
+    findings["check_safety_flags"] = safety
+
+    # Phase 4 — rule-based brief (no PGx LLM rewrite; emit running line first)
+    findings["_fast_brief"] = True
+    assembling = _trace_step_record(
+        "generate_brief",
+        {"skip_pgx_synthesis": True},
+        {"status": "assembling"},
+    )
+    assembling["status"] = "partial"
+    assembling["parallel"] = True
+    _emit_trace_step(trace, assembling, on_trace_step)
+
+    try:
+        _name, _args, brief = await asyncio.wait_for(
+            _run_traced("generate_brief", {"skip_pgx_synthesis": True}),
+            timeout=float(os.getenv("BRIEF_ASSEMBLY_TIMEOUT_SEC", "45")),
+        )
+    except asyncio.TimeoutError:
+        _log("[nemotron] generate_brief timed out — returning partial brief")
+        brief = {
+            "error": "Brief assembly timed out",
+            "action_required": False,
+            "safety_flags": findings.get("check_safety_flags") or [],
+            "snp_summary": [],
+            "recommendation": {"switch_required": False, "rationale": []},
+            "citations": [],
+            "patient_summary": "Brief assembly timed out; retry or check server logs.",
+        }
+        err_rec = _trace_step_record("generate_brief", {}, brief)
+        err_rec["status"] = "error"
+        _emit_trace_step(trace, err_rec, on_trace_step)
+
+    return _attach_trace(brief, trace, "parallel")
+
 
 def _deterministic_plan(
     patient_id: str,
@@ -639,16 +834,13 @@ def _deterministic_plan(
     findings: dict[str, Any],
     trace: list[dict[str, Any]] | None = None,
     run_reason: str | None = None,
+    *,
+    on_trace_step: Any | None = None,
 ) -> dict[str, Any]:
     snp_profile = patient.get("snp_profile") or {}
-    primary_rsids = ["rs7903146", "rs622342", "rs4149056", "rs4244285", "rs9939609"]
-    primary_genes = ["TCF7L2", "SLC22A1", "SLCO1B1", "CYP2C19", "FTO"]
-    pubmed_pairs = [
-        ("TCF7L2", "metformin"),
-        ("TCF7L2", "semaglutide"),
-        ("SLCO1B1", "atorvastatin"),
-        ("CYP2C19", "clopidogrel"),
-    ]
+    primary_rsids = PRIMARY_RSIDS
+    primary_genes = PRIMARY_GENES
+    pubmed_pairs = PUBMED_PAIRS
 
     first_fallback_note = True
 
@@ -667,8 +859,7 @@ def _deterministic_plan(
             agent_wide_fallback=aw,
             fallback_reason=fr,
         )
-        rec["step"] = len(trace) + 1
-        trace.append(rec)
+        _emit_trace_step(trace, rec, on_trace_step)
 
     for tool_name in DETERMINISTIC_PLAN:
         if tool_name == "fetch_pubmed":

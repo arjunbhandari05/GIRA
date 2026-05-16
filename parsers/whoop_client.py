@@ -61,13 +61,33 @@ def _metric_summary(series: list[float]) -> dict[str, float | str | None]:
     }
 
 
+def _whoop_candidate_paths(patient_id: str) -> list[Path]:
+    """Match server.patient_files.whoop_path (slug) plus legacy demo names."""
+    pid = patient_id.strip()
+    slug = pid.lower().replace("-", "_")
+    candidates = [
+        WHOOP_DIR / f"{slug}.json",
+        WHOOP_DIR / f"{pid.lower()}.json",
+    ]
+    legacy = PATIENT_FILES.get(pid)
+    if legacy:
+        candidates.append(WHOOP_DIR / legacy)
+    seen: set[str] = set()
+    out: list[Path] = []
+    for path in candidates:
+        key = str(path)
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
+
+
 def _load_whoop_file(patient_id: str) -> dict[str, Any]:
-    filename = PATIENT_FILES.get(patient_id, f"{patient_id.lower()}.json")
-    path = WHOOP_DIR / filename
-    if not path.exists():
-        raise FileNotFoundError(path)
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+    for path in _whoop_candidate_paths(patient_id):
+        if path.is_file():
+            with path.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+    raise FileNotFoundError(_whoop_candidate_paths(patient_id)[0])
 
 
 def _hypoglycemia_signal(raw_series: dict[str, list[float]]) -> bool:

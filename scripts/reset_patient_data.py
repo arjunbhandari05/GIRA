@@ -33,6 +33,7 @@ DATA_DIRS = (
     ROOT / "data" / "genomes",
     ROOT / "data" / "whoop",
     ROOT / "data" / "glucose",
+    ROOT / "data" / "intake",
 )
 
 
@@ -83,7 +84,7 @@ def main() -> int:
     if not args.yes:
         print("This will DELETE:")
         print(f"  - SQLite rows in {db} (patients, agent_briefs)")
-        print("  - All files under data/uploads, genomes, whoop, glucose")
+        print("  - All files under data/uploads, genomes, whoop, glucose, intake")
         confirm = input("Type RESET to continue: ").strip()
         if confirm != "RESET":
             print("Aborted.")
@@ -97,10 +98,11 @@ def main() -> int:
         print(f"  {table}: removed {n} row(s)")
     print(f"Removed {len(files)} file(s) under data/")
     print("\nNext steps:")
-    print("  1. POST /upload with a 23andMe raw file")
-    print("  2. PUT /intake/{patient_id} with the intake form (or add data/intake/{id}.json)")
-    print("  3. Add WHOOP + CGM JSON (see data/README.md)")
-    print("  4. GET /agent_brief/{patient_id}?refresh=true")
+    print("  1. POST /patients with {\"name\": \"Patient Name\"}")
+    print("  2. POST /patients/{id}/genome — 23andMe raw file")
+    print("  3. POST /patients/{id}/wearable and /glucose — synthetic JSON")
+    print("  4. POST /patients/{id}/intake-file or PUT /intake/{id}")
+    print("  5. GET /agent_brief/{patient_id}?refresh=true")
     return 0
 
 

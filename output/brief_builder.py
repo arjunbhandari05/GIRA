@@ -1,12 +1,13 @@
 """Structured agent brief assembly (generate_brief tool output)."""
 
+import os
 from datetime import datetime, timezone
 from typing import Any
 
 from apis.pubmed import fetch_pubmed_articles_for_pmids
 from reasoning.pgx import build_relevant_snp_rows
 from reasoning.pgx_synthesis import synthesize_pgx_evidence
-from schemas.patient_intake import intake_has_clinical_data
+from schemas.patient_intake import format_intake_for_llm, intake_has_clinical_data
 
 
 def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dict[str, Any]:
@@ -41,12 +42,26 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
     recommendation = _recommendation(
         snp_profile, current_meds, glucose, whoop, safety_flags, rxnorm_hits
     )
+    fast_brief = bool(
+        _kwargs.get("skip_pgx_synthesis")
+        or findings.get("_fast_brief")
+        or os.getenv("AGENT_MODE", "parallel").strip().lower() == "parallel"
+    )
     citations = _citation_set_used_only(
-        safety_flags, pubmed_hits, recommendation
+        safety_flags, pubmed_hits, recommendation, skip_live_pmid_fetch=fast_brief
     )
 
     used_pmids = [str(c.get("pmid")) for c in citations if c.get("pmid")]
-    synthesis = synthesize_pgx_evidence(findings, snp_summary, used_pmids)
+    skip_synthesis = fast_brief or os.getenv("PGX_SYNTHESIS", "0").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+    )
+    synthesis = (
+        None
+        if skip_synthesis
+        else synthesize_pgx_evidence(findings, snp_summary, used_pmids)
+    )
     citation_inferences: dict[str, str] = {}
     if synthesis:
         snp_summary = synthesis.get("snp_summary") or snp_summary
@@ -332,6 +347,8 @@ def _citation_set_used_only(
     safety_flags: list,
     pubmed_hits: list[dict],
     recommendation: dict[str, Any],
+    *,
+    skip_live_pmid_fetch: bool = False,
 ) -> list[dict]:
     """
     Only PMIDs that materially support this brief: recommendation.supporting_pmids
@@ -359,13 +376,16 @@ def _citation_set_used_only(
             by_pmid[p] = article
 
     missing = [p for p in used if p not in by_pmid or not (by_pmid[p].get("title"))]
-    if missing:
-        extra = fetch_pubmed_articles_for_pmids(missing)
-        for row in extra.get("articles") or []:
-            if isinstance(row, dict):
-                p = str(row.get("pmid") or "").strip()
-                if p:
-                    by_pmid[p] = {**by_pmid.get(p, {}), **row}
+    if missing and not skip_live_pmid_fetch:
+        try:
+            extra = fetch_pubmed_articles_for_pmids(missing)
+            for row in extra.get("articles") or []:
+                if isinstance(row, dict):
+                    p = str(row.get("pmid") or "").strip()
+                    if p:
+                        by_pmid[p] = {**by_pmid.get(p, {}), **row}
+        except Exception:
+            pass
 
     out: list[dict] = []
     for pmid in used:
@@ -389,6 +409,8 @@ def _citation_set_used_only(
 
 
 def _intake_summary(patient: dict) -> dict[str, Any]:
+    from schemas.patient_intake import format_intake_for_llm as _format_intake
+
     intake = patient.get("intake") or {}
     if not intake_has_clinical_data(intake):
         return {"available": False}
@@ -407,7 +429,7 @@ def _intake_summary(patient: dict) -> dict[str, Any]:
             if isinstance(m, dict)
         ],
         "clinician_notes": (intake.get("clinicianNotes") or "")[:300],
-        "text": format_intake_for_llm(intake),
+        "text": _format_intake(intake),
     }
 
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
 from reasoning.nemotron import _call_model, _detect_backend, _log, _safe_json
@@ -19,6 +21,8 @@ def synthesize_pgx_evidence(
   Returns {"snp_summary": [...], "citation_inferences": {pmid: str}} or None.
     """
     if not snp_rows:
+        return None
+    if os.getenv("PGX_SYNTHESIS", "0").strip().lower() not in ("1", "true", "yes"):
         return None
     backend = _detect_backend()
     if backend == "none":
@@ -56,12 +60,18 @@ def synthesize_pgx_evidence(
         },
     ]
 
+    timeout_sec = int(os.getenv("PGX_SYNTHESIS_TIMEOUT_SEC", "45"))
     try:
-        raw = _call_model(messages, backend, json_mode=True)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fut = pool.submit(_call_model, messages, backend, json_mode=True)
+            raw = fut.result(timeout=timeout_sec)
         parsed = _safe_json(raw)
         if not isinstance(parsed, dict):
             return None
         return _validate_synthesis(parsed, snp_rows, citation_pmids)
+    except FuturesTimeoutError:
+        _log(f"[pgx_synthesis] timed out after {timeout_sec}s — using rule-based SNP text")
+        return None
     except Exception as exc:
         _log(f"[pgx_synthesis] skipped: {exc!r}")
         return None

@@ -1,5 +1,6 @@
 """GlycoAgent FastAPI backend — patients, intake, genomics, agentic briefs."""
 
+import asyncio
 import json
 import os
 import random
@@ -13,17 +14,36 @@ from typing import Any, List
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 
-from agent.memory import ensure_schema, read as agent_read_patient, write_intake
-from parsers.intake_client import load_intake
+from agent.memory import (
+    create_patient,
+    ensure_schema,
+    patient_exists,
+    read as agent_read_patient,
+    update_genome,
+    write_intake,
+)
+from server.patient_files import (
+    glucose_path,
+    has_intake_file,
+    intake_file_path,
+    patient_assets_status,
+    save_json,
+    whoop_path,
+)
+from parsers.intake_client import attach_intake_to_patient, load_intake
 from agent.tools import TOOL_DEFINITIONS
 from parsers.glucose_client import load_glucose
 from parsers.snp_parser import parse_genome
 from parsers.whoop_client import get_whoop_analytics
-from reasoning.nemotron import run_with_tools
+from reasoning.nemotron import run_parallel_tool_plan, run_with_tools
 from reasoning.safety_flags import check_safety_flags
-from schemas.patient_intake import intake_has_clinical_data
+from schemas.patient_intake import (
+    empty_intake,
+    intake_has_clinical_data,
+    medications_to_strings,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", override=True)
@@ -109,6 +129,30 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/patients")
+def post_patient(payload: dict) -> dict:
+    """Create a patient shell by display name; upload genome and metrics separately."""
+    name = (payload or {}).get("name") or ""
+    if not str(name).strip():
+        return {"error": "name is required"}
+    patient = create_patient(str(name).strip())
+    pid = patient.get("patient_id")
+    snps = patient.get("snp_profile") or {}
+    return {
+        "patient_id": pid,
+        "name": patient.get("name"),
+        "assets": patient_assets_status(pid, snps if isinstance(snps, dict) else {}),
+    }
+
+
+@app.get("/patients/{patient_id}/assets")
+def get_patient_assets(patient_id: str) -> dict:
+    patient, snps = _load_patient_and_snps(patient_id)
+    if not patient:
+        return {"error": f"patient {patient_id} not found"}
+    return patient_assets_status(patient_id, snps)
+
+
 @app.get("/patients")
 def list_patients() -> List[dict[str, Any]]:
     conn = sqlite3.connect(_db_path())
@@ -147,17 +191,29 @@ def get_safety(patient_id: str) -> list:
 
 @app.get("/intake/{patient_id}")
 def get_intake(patient_id: str) -> dict:
-    """Return merged intake (DB + synthetic file fallback)."""
+    """Return merged intake (DB + uploaded JSON from Setup)."""
     patient = agent_read_patient(patient_id)
     if not patient:
         intake = load_intake(patient_id)
         if intake_has_clinical_data(intake):
-            return {"patient_id": patient_id, "intake": intake, "source": "file"}
+            return {
+                "patient_id": patient_id,
+                "intake": intake,
+                "medications_flat": medications_to_strings(intake),
+                "source": "file",
+            }
         return {"error": f"patient {patient_id} not found"}
+    enriched = attach_intake_to_patient(patient)
+    intake = enriched.get("intake") or empty_intake(patient_id)
+    source = "db"
+    if has_intake_file(patient_id) and intake_has_clinical_data(intake):
+        source = "merged"
     return {
         "patient_id": patient_id,
-        "intake": patient.get("intake"),
-        "medications_flat": patient.get("current_meds") or [],
+        "intake": intake,
+        "medications_flat": enriched.get("current_meds") or [],
+        "has_clinical_data": intake_has_clinical_data(intake),
+        "source": source,
     }
 
 
@@ -183,6 +239,7 @@ async def _run_agent_brief(
     *,
     refresh: bool = False,
     cache_only: bool = False,
+    on_trace_step: Any | None = None,
 ) -> dict:
     """Single brief pipeline: Nemotron tool loop → assemble_brief (+ PGx synthesis)."""
     if not refresh:
@@ -196,7 +253,15 @@ async def _run_agent_brief(
     if not patient:
         return {"error": f"patient {patient_id} not found"}
 
-    brief = await run_with_tools(patient_id, patient, TOOL_DEFINITIONS)
+    agent_mode = os.getenv("AGENT_MODE", "parallel").strip().lower()
+    if agent_mode == "llm":
+        brief = await run_with_tools(
+            patient_id, patient, TOOL_DEFINITIONS, on_trace_step=on_trace_step
+        )
+    else:
+        brief = await run_parallel_tool_plan(
+            patient_id, patient, TOOL_DEFINITIONS, on_trace_step=on_trace_step
+        )
     if isinstance(brief, dict):
         brief.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
         brief["cached"] = False
@@ -269,6 +334,105 @@ async def get_agent_brief(
     )
 
 
+def _sse_payload(payload: dict) -> str:
+    try:
+        body = json.dumps(payload, default=str)
+    except (TypeError, ValueError) as exc:
+        body = json.dumps(
+            {"event": "error", "message": f"Could not encode brief for stream: {exc}"}
+        )
+    return f"data: {body}\n\n"
+
+
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+
+@app.get("/agent_brief/{patient_id}/stream")
+async def stream_agent_brief(
+    patient_id: str,
+    refresh: bool = False,
+    cache_only: bool = False,
+):
+    """Server-sent events: one event per Nemotron tool step, then the full brief."""
+
+    async def replay_cached(cached: dict):
+        yield _sse_payload({"event": "start", "patient_id": patient_id, "cached": True})
+        for step in cached.get("_trace") or []:
+            yield _sse_payload({"event": "step", "step": step})
+        yield _sse_payload({"event": "complete", "brief": cached})
+
+    if not refresh:
+        cached = _read_cached_agent_brief(patient_id)
+        if cached:
+            return StreamingResponse(
+                replay_cached(cached),
+                media_type="text/event-stream",
+                headers=_SSE_HEADERS,
+            )
+
+    if cache_only:
+        async def not_cached():
+            yield _sse_payload({"event": "error", "message": "not_cached"})
+
+        return StreamingResponse(
+            not_cached(), media_type="text/event-stream", headers=_SSE_HEADERS
+        )
+
+    patient = agent_read_patient(patient_id)
+    if not patient:
+
+        async def missing():
+            yield _sse_payload(
+                {"event": "error", "message": f"patient {patient_id} not found"}
+            )
+
+        return StreamingResponse(
+            missing(), media_type="text/event-stream", headers=_SSE_HEADERS
+        )
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def on_trace_step(step: dict) -> None:
+        try:
+            queue.put_nowait({"event": "step", "step": step})
+        except asyncio.QueueFull:
+            pass
+
+    async def run_agent():
+        try:
+            brief = await _run_agent_brief(
+                patient_id, refresh=True, on_trace_step=on_trace_step
+            )
+            if isinstance(brief, dict) and brief.get("error"):
+                await queue.put({"event": "error", "message": brief["error"]})
+            else:
+                await queue.put({"event": "complete", "brief": brief})
+        except Exception as exc:
+            await queue.put({"event": "error", "message": str(exc)})
+        finally:
+            await queue.put(None)
+
+    async def event_generator():
+        yield _sse_payload({"event": "start", "patient_id": patient_id})
+        task = asyncio.create_task(run_agent())
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield _sse_payload(item)
+        await task
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
+
+
 @app.delete("/agent_brief/{patient_id}")
 def delete_agent_brief(patient_id: str) -> dict:
     conn = sqlite3.connect(_db_path())
@@ -284,8 +448,102 @@ def _new_upload_patient_id() -> str:
     return f"PT-UP-{suffix}"
 
 
+async def _parse_genome_upload(file: UploadFile) -> dict:
+    content = await file.read()
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="glyco_upload_")
+        with os.fdopen(fd, "wb") as tmp:
+            tmp.write(content)
+        return parse_genome(tmp_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@app.post("/patients/{patient_id}/genome")
+async def upload_patient_genome(patient_id: str, file: UploadFile = File(...)) -> dict:
+    """Upload a 23andMe-style raw file for an existing patient."""
+    if not patient_exists(patient_id):
+        return {"error": f"patient {patient_id} not found"}
+    snps = await _parse_genome_upload(file)
+    meta = update_genome(patient_id, snps)
+    return {
+        **meta,
+        "snps": snps,
+        "assets": patient_assets_status(patient_id, snps),
+    }
+
+
+@app.post("/patients/{patient_id}/wearable")
+async def upload_patient_wearable(patient_id: str, file: UploadFile = File(...)) -> dict:
+    """Store synthetic WHOOP JSON at data/whoop/{patient_id}.json"""
+    if not patient_exists(patient_id):
+        return {"error": f"patient {patient_id} not found"}
+    raw = await file.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"error": "invalid JSON file"}
+    if not isinstance(payload, dict):
+        return {"error": "WHOOP file must be a JSON object"}
+    payload.setdefault("patient_id", patient_id)
+    path = whoop_path(patient_id)
+    save_json(path, payload)
+    return {"patient_id": patient_id, "path": str(path), "saved": True}
+
+
+@app.post("/patients/{patient_id}/glucose")
+async def upload_patient_glucose(patient_id: str, file: UploadFile = File(...)) -> dict:
+    """Store synthetic CGM JSON at data/glucose/{patient_id}.json"""
+    if not patient_exists(patient_id):
+        return {"error": f"patient {patient_id} not found"}
+    raw = await file.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"error": "invalid JSON file"}
+    if not isinstance(payload, dict):
+        return {"error": "glucose file must be a JSON object"}
+    payload.setdefault("patient_id", patient_id)
+    path = glucose_path(patient_id)
+    save_json(path, payload)
+    return {"patient_id": patient_id, "path": str(path), "saved": True}
+
+
+@app.post("/patients/{patient_id}/intake-file")
+async def upload_patient_intake_file(patient_id: str, file: UploadFile = File(...)) -> dict:
+    """Upload intake form JSON; persists to disk and SQLite."""
+    if not patient_exists(patient_id):
+        return {"error": f"patient {patient_id} not found"}
+    raw = await file.read()
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"error": "invalid JSON file"}
+    if not isinstance(payload, dict):
+        return {"error": "intake file must be a JSON object"}
+    path = intake_file_path(patient_id)
+    save_json(path, payload)
+    try:
+        saved = write_intake(patient_id, payload)
+    except ValueError:
+        return {"error": f"patient {patient_id} not found"}
+    return {
+        "patient_id": patient_id,
+        "path": str(path),
+        "saved": True,
+        "intake": saved,
+        "has_clinical_data": intake_has_clinical_data(saved),
+    }
+
+
 @app.post("/upload")
 async def upload_genome(file: UploadFile = File(...)) -> dict:
+    """Legacy: create a new patient from genome upload only."""
     content = await file.read()
     patient_id = _new_upload_patient_id()
     tmp_path = None

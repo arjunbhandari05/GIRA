@@ -28,9 +28,9 @@ _FILE_ALIASES = {
 
 def _intake_paths(patient_id: str) -> list[Path]:
     pid = patient_id.strip()
-    paths = [INTAKE_DIR / f"{pid}.json"]
-    lower = pid.lower().replace("-", "_")
-    paths.append(INTAKE_DIR / f"{lower}.json")
+    slug = pid.lower().replace("-", "_")
+    paths = [INTAKE_DIR / f"{pid}.json", INTAKE_DIR / f"{slug}.json"]
+    lower = slug
     alias = _FILE_ALIASES.get(lower)
     if alias:
         paths.append(INTAKE_DIR / f"{alias}.json")
