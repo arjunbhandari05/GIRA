@@ -1,24 +1,31 @@
 # data/
 
-Synthetic patient inputs for the 3 demo profiles. **Never put real PHI here.**
+Patient inputs for GlycoAgent. **Never put real PHI here.**
 
-Generate everything by running:
+## Fresh start
 
 ```bash
-python scripts/build_patient_file.py    # writes data/genomes/patient_{a,b,c}.txt
-python scripts/build_whoop_data.py      # writes data/whoop/patient_{a,b,c}.json
+python scripts/reset_patient_data.py --yes   # wipes DB + all files below
 ```
 
-## Layout
+Then upload a genome in the UI (`POST /upload` → `PT-UP-XXXXXX`).
 
-```
-data/
-  genomes/
-    patient_a.txt   PT-001 · Alex Rivera  · partial responder
-    patient_b.txt   PT-002 · Jordan Kim   · non-responder
-    patient_c.txt   PT-003 · Morgan Chen  · safety flags
-  whoop/
-    patient_a.json  30d HRV trending up
-    patient_b.json  30d HRV flat
-    patient_c.json  30d normal + SpO₂ dips < 94% on 7 nights
+## After upload — add synthetic wearable + CGM
+
+For patient id `PT-UP-ABC123`:
+
+| Data | Path |
+|------|------|
+| WHOOP | `data/whoop/pt-up-abc123.json` |
+| Glucose | `data/glucose/pt_up_abc123.json` |
+
+Copy structure from `scripts/build_whoop_data.py` / `scripts/build_glucose_data.py` output, or duplicate and edit a prior JSON.
+
+## Regenerate demo trio (optional)
+
+```bash
+python scripts/build_patient_file.py
+python scripts/build_whoop_data.py
+python scripts/build_glucose_data.py
+python scripts/seed_db.py
 ```
