@@ -34,7 +34,8 @@ OUTPUT CONTRACT (every turn):
 POLICY:
 - Always call get_snp_profile first.
 - check_safety_flags MUST be called before generate_brief.
-- Cite a PMID for every recommendation (use fetch_pubmed for gene-drug pairs).
+- Cite a PMID for every recommendation (use fetch_pubmed + fetch_clinvar; brief PGx text is synthesized from those, not static tables).
+- fetch_pharmgkb is optional reference only — do not treat it as the evidence source for findings.
 - Never call the same tool more than 3 times.
 - Stop after generate_brief returns; do not call further tools.
 

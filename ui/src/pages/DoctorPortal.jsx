@@ -2,14 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   getAgentBrief,
-  getBrief,
   getPatients,
   getSafety,
   getWearable,
   uploadGenome,
 } from '../api.js';
 import AgentBrief from '../components/AgentBrief.jsx';
-import BriefRenderer from '../components/BriefRenderer.jsx';
 import FileDropZone from '../components/FileDropZone.jsx';
 import MetricCards from '../components/MetricCards.jsx';
 import SafetyBanners from '../components/SafetyBanners.jsx';
@@ -30,12 +28,10 @@ export default function DoctorPortal() {
   const [selectedId, setSelectedId] = useState(searchParams.get('patient') || '');
   const [wearable, setWearable] = useState(null);
   const [safetyFlags, setSafetyFlags] = useState([]);
-  const [briefResponse, setBriefResponse] = useState(null);
   const [agentBrief, setAgentBrief] = useState(null);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [loadingWearable, setLoadingWearable] = useState(false);
   const [loadingBrief, setLoadingBrief] = useState(false);
-  const [loadingAgent, setLoadingAgent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
@@ -74,19 +70,24 @@ export default function DoctorPortal() {
     let cancelled = false;
     setWearable(null);
     setSafetyFlags([]);
-    setBriefResponse(null);
     setAgentBrief(null);
     setLoadingWearable(true);
     setError('');
-    Promise.all([getWearable(selectedId), getSafety(selectedId)])
-      .then(([wearableResult, safetyResult]) => {
+    Promise.all([
+      getWearable(selectedId),
+      getSafety(selectedId),
+      getAgentBrief(selectedId, { cacheOnly: true }),
+    ])
+      .then(([wearableResult, safetyResult, briefResult]) => {
         if (cancelled) return;
         setWearable(wearableResult.data);
         setSafetyFlags(Array.isArray(safetyResult.data) ? safetyResult.data : []);
+        const brief = briefResult.data;
+        if (brief && !brief.error) setAgentBrief(brief);
       })
       .catch(err => {
         console.error(err);
-        if (!cancelled) setError('Could not load wearable data for this patient.');
+        if (!cancelled) setError('Could not load patient data.');
       })
       .finally(() => {
         if (!cancelled) setLoadingWearable(false);
@@ -113,39 +114,27 @@ export default function DoctorPortal() {
     }
   };
 
-  const generateBrief = async () => {
+  const generateBrief = async ({ refresh = false } = {}) => {
     if (!selectedId) return;
     setLoadingBrief(true);
-    setBriefResponse(null);
+    if (refresh) setAgentBrief(null);
     setError('');
     try {
-      const { data } = await getBrief(selectedId);
-      setBriefResponse(data);
+      const { data } = await getAgentBrief(selectedId, { refresh });
+      if (data?.error && data.error !== 'not_cached') {
+        setError(data.error);
+        return;
+      }
+      setAgentBrief(data);
     } catch (err) {
       console.error(err);
-      setError('Brief generation failed. Check the backend and try again.');
+      setError('Brief generation failed. Check NVIDIA_API_KEY / backend logs.');
     } finally {
       setLoadingBrief(false);
     }
   };
 
-  const runAgent = async ({ refresh = false } = {}) => {
-    if (!selectedId) return;
-    setLoadingAgent(true);
-    if (refresh) setAgentBrief(null);
-    setError('');
-    try {
-      const { data } = await getAgentBrief(selectedId, { refresh });
-      setAgentBrief(data);
-    } catch (err) {
-      console.error(err);
-      setError('Agentic brief failed. Check that OPENROUTER_API_KEY is set.');
-    } finally {
-      setLoadingAgent(false);
-    }
-  };
-
-  const flags = briefResponse?.safety_flags || safetyFlags;
+  const flags = agentBrief?.safety_flags || safetyFlags;
 
   return (
     <div className="doctor-page">
@@ -188,43 +177,37 @@ export default function DoctorPortal() {
           <div className="header-actions">
             {selectedId && <Link className="link-button" to={`/patient/${selectedId}`}>Patient view</Link>}
             <button
-              className="primary-btn"
-              disabled={!selectedId || loadingBrief || loadingAgent}
-              onClick={generateBrief}
-            >
-              Generate Brief
-            </button>
-            <button
               className="primary-btn agent-btn"
-              disabled={!selectedId || loadingAgent || loadingBrief}
-              onClick={() => runAgent({ refresh: false })}
-              title="Runs Nemotron in a tool-calling loop. Cached after first run."
+              disabled={!selectedId || loadingBrief}
+              onClick={() => generateBrief({ refresh: false })}
+              title="Runs Nemotron tool loop (ClinVar, PubMed, CGM, etc.) then assembles the brief. Cached after first run."
             >
-              🤖 Run Agent
+              {agentBrief ? '↻ Regenerate brief' : 'Generate clinical brief'}
             </button>
-            {agentBrief ? (
+            {agentBrief?.cached ? (
               <button
                 className="link-button"
-                disabled={loadingAgent}
-                onClick={() => runAgent({ refresh: true })}
-                title="Discard cache and run the agent again"
+                disabled={loadingBrief}
+                onClick={() => generateBrief({ refresh: true })}
+                title="Discard cache and run a fresh agent pass"
               >
-                ↻ Re-run agent
+                Force refresh
               </button>
             ) : null}
           </div>
         </section>
 
         {loadingBrief ? (
-          <Spinner full label="Analyzing genomic profile… ~60 seconds" />
-        ) : loadingAgent ? (
           <Spinner full label="Nemotron is calling tools… first run can take 1–4 min" />
         ) : agentBrief ? (
           <AgentBrief brief={agentBrief} patient={selectedPatient} />
         ) : (
           <>
             {selectedId && <SafetyBanners flags={flags} />}
-            <BriefRenderer markdown={briefResponse?.brief_md} />
+            <div className="empty-card">
+              Select a patient and click <strong>Generate clinical brief</strong> to run the
+              agent (live ClinVar, PubMed, CGM, and structured recommendations).
+            </div>
           </>
         )}
       </main>

@@ -234,14 +234,13 @@ async def run_with_tools(
         f"Zip code: {patient.get('zip_code') or patient.get('zip', 'unknown')}\n\n"
         "Call tools in this order based on what you find:\n"
         "1. get_snp_profile first — always\n"
-        "2. fetch_clinvar for high-risk rsIDs\n"
-        "3. fetch_pharmgkb for flagged genes\n"
+        "2. fetch_clinvar for patient rsIDs\n"
+        "3. fetch_pubmed for gene-drug pairs tied to the patient's genotype\n"
         "4. fetch_whoop and fetch_glucose together — confirm medication response\n"
         "5. fetch_rxnorm before any medication change recommendation\n"
-        "6. fetch_pubmed for every gene-drug claim\n"
-        "7. fetch_trials if TCF7L2 TT or FTO AA or APOE4 found\n"
-        "8. check_safety_flags — mandatory\n"
-        "9. generate_brief — only after check_safety_flags\n\n"
+        "6. fetch_trials if a high-impact variant or safety flag warrants it\n"
+        "7. check_safety_flags — mandatory\n"
+        "8. generate_brief — only after check_safety_flags (PGx table uses ClinVar + PubMed, not static PharmGKB)\n\n"
         "Respond with ONE JSON object per turn:\n"
         '  {"tool_call": {"name": "tool_name", "args": {...}}}\n'
         "When all tools have been called and the brief generated, respond:\n"
@@ -636,6 +635,7 @@ def _enrich_args(
         if not args.get("rsids"):
             args["rsids"] = list(snp_profile.keys())
     elif name == "fetch_pharmgkb":
+        args.setdefault("snp_profile", snp_profile)
         if not args.get("genes"):
             args["genes"] = sorted(
                 {
@@ -667,7 +667,6 @@ def _enrich_args(
 DETERMINISTIC_PLAN = [
     "get_snp_profile",
     "fetch_clinvar",
-    "fetch_pharmgkb",
     "fetch_whoop",
     "fetch_glucose",
     "fetch_rxnorm",
@@ -779,8 +778,6 @@ def _deterministic_plan(
 
         if tool_name == "fetch_clinvar":
             args = {"rsids": primary_rsids or list(snp_profile.keys())}
-        elif tool_name == "fetch_pharmgkb":
-            args = {"genes": primary_genes}
         else:
             args = {}
 

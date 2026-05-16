@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from apis.pubmed import fetch_pubmed_articles_for_pmids
+from reasoning.pgx import build_relevant_snp_rows
+from reasoning.pgx_synthesis import synthesize_pgx_evidence
 
 
 def build_brief(patient, snps, wearable, pharmgkb, clinvar, safety_flags, nemotron_text) -> str:
@@ -84,7 +86,6 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
     safety_flags = findings.get("check_safety_flags") or []
     glucose = findings.get("fetch_glucose") or {}
     whoop = findings.get("fetch_whoop") or {}
-    pharmgkb_hits = _as_list(findings.get("fetch_pharmgkb"))
     pubmed_hits = _flatten_pubmed(findings)
     rxnorm_hits = _as_list(findings.get("fetch_rxnorm"))
     trials_raw = findings.get("fetch_trials")
@@ -92,14 +93,25 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
     trial_meta = _trials_meta(trials_raw)
     patient = findings.get("patient") or {}
     current_meds = patient.get("current_meds") or patient.get("meds") or []
+    clinvar_raw = findings.get("fetch_clinvar")
 
-    snp_summary = _summarize_snps(snp_profile, pharmgkb_hits)
+    snp_summary = build_relevant_snp_rows(
+        snp_profile, safety_flags, current_meds, clinvar_raw
+    )
     recommendation = _recommendation(
-        snp_profile, current_meds, glucose, whoop, safety_flags, pharmgkb_hits, rxnorm_hits
+        snp_profile, current_meds, glucose, whoop, safety_flags, rxnorm_hits
     )
     citations = _citation_set_used_only(
-        safety_flags, pharmgkb_hits, pubmed_hits, recommendation
+        safety_flags, pubmed_hits, recommendation
     )
+
+    used_pmids = [str(c.get("pmid")) for c in citations if c.get("pmid")]
+    synthesis = synthesize_pgx_evidence(findings, snp_summary, used_pmids)
+    citation_inferences: dict[str, str] = {}
+    if synthesis:
+        snp_summary = synthesis.get("snp_summary") or snp_summary
+        citation_inferences = synthesis.get("citation_inferences") or {}
+        citations = _apply_citation_inferences(citations, citation_inferences, pubmed_hits)
 
     glucose_insight = _glucose_insight(glucose)
     wearable_insight = _wearable_insight(whoop)
@@ -153,28 +165,22 @@ def _extract_snp_profile(findings: dict[str, Any]) -> dict[str, dict]:
     return patient.get("snp_profile") or {}
 
 
-def _summarize_snps(snp_profile: dict[str, dict], pharmgkb_hits: list[dict]) -> list[dict]:
-    by_gene = {}
-    for hit in pharmgkb_hits:
-        if not isinstance(hit, dict):
-            continue
-        gene = (hit.get("gene") or "").upper()
-        by_gene.setdefault(gene, hit)
+def _apply_citation_inferences(
+    citations: list[dict],
+    inferences: dict[str, str],
+    pubmed_hits: list[dict],
+) -> list[dict]:
+    if not inferences:
+        return citations
+    by_pmid = {str(a.get("pmid")): a for a in pubmed_hits if a.get("pmid")}
     out = []
-    for rsid, snp in snp_profile.items():
-        gene = (snp.get("gene") or "").upper()
-        finding = by_gene.get(gene, {})
-        out.append(
-            {
-                "rsid": rsid,
-                "gene": snp.get("gene"),
-                "genotype": snp.get("genotype"),
-                "evidence_level": finding.get("evidence_level"),
-                "finding": finding.get("finding"),
-                "drug": finding.get("drug"),
-                "pmid": finding.get("pmid"),
-            }
-        )
+    for row in citations:
+        pmid = str(row.get("pmid") or "")
+        note = inferences.get(pmid)
+        if not note and pmid in by_pmid:
+            art = by_pmid[pmid]
+            note = art.get("evidence_note") or row.get("inference")
+        out.append({**row, "inference": note or row.get("inference")})
     return out
 
 
@@ -262,7 +268,6 @@ def _recommendation(
     glucose: dict[str, Any],
     whoop: dict[str, Any],
     safety_flags: list,
-    pharmgkb_hits: list[dict],
     rxnorm_hits: list[dict],
 ) -> dict[str, Any]:
     """
@@ -349,10 +354,14 @@ def _citation_inference(
     pmid: str,
     recommendation: dict[str, Any],
     safety_flags: list,
-    pharmgkb_hits: list[dict],
+    pubmed_hits: list[dict],
 ) -> str:
-    """One-sentence rationale tying a PMID to this brief (no unused filler)."""
+    """One-sentence rationale tying a PMID to this brief (no static PGx paste)."""
     pmid_s = str(pmid)
+    for art in pubmed_hits:
+        if str(art.get("pmid") or "") == pmid_s and art.get("evidence_note"):
+            return str(art["evidence_note"])[:400]
+
     rec_pmids = [str(p) for p in (recommendation.get("supporting_pmids") or [])]
     if pmid_s in rec_pmids:
         rec = recommendation
@@ -375,21 +384,11 @@ def _citation_inference(
                 f"({flag.get('rsid')}): {str(flag.get('flag') or '')[:200]}"
             )
 
-    for hit in pharmgkb_hits:
-        if not isinstance(hit, dict):
-            continue
-        if str(hit.get("pmid") or "") == pmid_s:
-            g = hit.get("gene") or "?"
-            return (
-                f"PharmGKB annotation for {g}: {str(hit.get('finding') or '')[:220]}"
-            )
-
     return "Referenced in this brief as supporting literature."
 
 
 def _citation_set_used_only(
     safety_flags: list,
-    pharmgkb_hits: list[dict],
     pubmed_hits: list[dict],
     recommendation: dict[str, Any],
 ) -> list[dict]:
@@ -418,17 +417,6 @@ def _citation_set_used_only(
         if p:
             by_pmid[p] = article
 
-    for hit in pharmgkb_hits:
-        if not isinstance(hit, dict):
-            continue
-        p = str(hit.get("pmid") or "").strip()
-        if p and p not in by_pmid:
-            by_pmid[p] = {
-                "pmid": p,
-                "title": str(hit.get("finding") or hit.get("drug") or ""),
-                "url": f"https://pubmed.ncbi.nlm.nih.gov/{p}/",
-            }
-
     missing = [p for p in used if p not in by_pmid or not (by_pmid[p].get("title"))]
     if missing:
         extra = fetch_pubmed_articles_for_pmids(missing)
@@ -446,7 +434,7 @@ def _citation_set_used_only(
             "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
         }
         note = row.get("evidence_note") or _citation_inference(
-            pmid, recommendation, safety_flags, pharmgkb_hits
+            pmid, recommendation, safety_flags, pubmed_hits
         )
         out.append(
             {

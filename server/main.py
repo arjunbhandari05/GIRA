@@ -22,12 +22,10 @@ from agent.tools import TOOL_DEFINITIONS
 from apis.clinvar import get_clinvar
 from apis.pharmgkb import get_pharmgkb
 from apis.pubmed import get_pubmed
-from output.brief_builder import build_brief
 from parsers.glucose_client import load_glucose
 from parsers.snp_parser import parse_genome
 from parsers.whoop_client import get_whoop_analytics
-from reasoning.nemotron import run_nemotron, run_with_tools
-from reasoning.prompts import build_context_prompt
+from reasoning.nemotron import run_with_tools
 from reasoning.safety_flags import check_safety_flags
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,63 +195,42 @@ async def get_api_annotations(patient_id: str) -> dict:
     return await _run_api_annotations(snps)
 
 
-@app.get("/brief/{patient_id}")
-async def get_brief(patient_id: str) -> dict:
-    patient, snps = _load_patient_and_snps(patient_id)
+async def _run_agent_brief(
+    patient_id: str,
+    *,
+    refresh: bool = False,
+    cache_only: bool = False,
+) -> dict:
+    """Single brief pipeline: Nemotron tool loop → assemble_brief (+ PGx synthesis)."""
+    if not refresh:
+        cached = _read_cached_agent_brief(patient_id)
+        if cached:
+            return cached
+        if cache_only:
+            return {"error": "not_cached", "cached": False}
+
+    patient = agent_read_patient(patient_id)
     if not patient:
-        return {"error": "patient not found"}
+        return {"error": f"patient {patient_id} not found"}
 
-    wearable = get_whoop_analytics(patient_id)
-    safety_flags = check_safety_flags(snps)
-    pharmgkb = _pharmgkb_for_snps(snps)
-    api_results = await _run_api_annotations(snps)
-    clinvar = api_results["clinvar"]
-    pubmed = api_results["pubmed"]
-    context_prompt = build_context_prompt(
-        patient,
-        snps,
-        wearable,
-        pharmgkb,
-        clinvar,
-        pubmed,
-        safety_flags,
-    )
-    nemotron_text = await run_nemotron(context_prompt)
-    brief_md = build_brief(
-        patient,
-        snps,
-        wearable,
-        pharmgkb,
-        clinvar,
-        safety_flags,
-        nemotron_text,
-    )
+    brief = await run_with_tools(patient_id, patient, TOOL_DEFINITIONS)
+    if isinstance(brief, dict):
+        brief.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
+        brief["cached"] = False
+        _write_cached_agent_brief(patient_id, brief)
+    return brief
 
-    generated_at = datetime.now(timezone.utc).isoformat()
-    conn = sqlite3.connect(_db_path())
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO briefs (
-            patient_id, generated_at, brief_md, wearable_snapshot_json
-        ) VALUES (?, ?, ?, ?)
-        """,
-        (
-            patient_id,
-            generated_at,
-            brief_md,
-            json.dumps(wearable),
-        ),
-    )
-    conn.commit()
-    conn.close()
 
-    return {
-        "brief_md": brief_md,
-        "safety_flags": safety_flags,
-        "patient": patient,
-        "wearable": wearable,
-    }
+@app.get("/brief/{patient_id}")
+async def get_brief(
+    patient_id: str,
+    refresh: bool = False,
+    cache_only: bool = False,
+) -> dict:
+    """Alias for the agentic brief — same as GET /agent_brief."""
+    return await _run_agent_brief(
+        patient_id, refresh=refresh, cache_only=cache_only
+    )
 
 
 def _read_cached_agent_brief(patient_id: str) -> dict | None:
@@ -293,28 +270,20 @@ def _write_cached_agent_brief(patient_id: str, brief: dict) -> None:
 
 
 @app.get("/agent_brief/{patient_id}")
-async def get_agent_brief(patient_id: str, refresh: bool = False) -> dict:
+async def get_agent_brief(
+    patient_id: str,
+    refresh: bool = False,
+    cache_only: bool = False,
+) -> dict:
     """
     Run the Nemotron tool-calling agent for this patient. Returns the
     structured brief plus `_trace` (every tool the model called, in order).
-    Cached in the agent_briefs table so the second click is instant; pass
-    ?refresh=true to force a re-run.
+    Cached in agent_briefs; ?refresh=true forces a re-run; ?cache_only=true
+  returns without running when nothing is cached.
     """
-    if not refresh:
-        cached = _read_cached_agent_brief(patient_id)
-        if cached:
-            return cached
-
-    patient = agent_read_patient(patient_id)
-    if not patient:
-        return {"error": f"patient {patient_id} not found"}
-
-    brief = await run_with_tools(patient_id, patient, TOOL_DEFINITIONS)
-    if isinstance(brief, dict):
-        brief.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
-        brief["cached"] = False
-        _write_cached_agent_brief(patient_id, brief)
-    return brief
+    return await _run_agent_brief(
+        patient_id, refresh=refresh, cache_only=cache_only
+    )
 
 
 @app.delete("/agent_brief/{patient_id}")

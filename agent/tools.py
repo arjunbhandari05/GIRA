@@ -84,11 +84,14 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "fetch_pharmgkb",
         "description": (
-            "Get drug-gene interaction evidence for a list of genes. Returns evidence "
-            "level (1A-4), drug, effect, and PMID. Call after get_snp_profile to "
-            "understand what each variant means clinically."
+            "Optional static gene-drug reference (genotype-filtered when snp_profile "
+            "is passed). Prefer fetch_clinvar + fetch_pubmed for evidence; the brief "
+            "synthesizes PGx findings from live sources, not this table."
         ),
-        "parameters": {"genes": "array of gene name strings"},
+        "parameters": {
+            "genes": "array of gene name strings",
+            "snp_profile": "optional — only return rows matching patient genotypes",
+        },
         "fn": _wrap(fetch_pharmgkb),
     },
     {

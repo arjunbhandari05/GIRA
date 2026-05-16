@@ -157,10 +157,22 @@ function RecommendationCard({ recommendation, actionRequired }) {
 }
 
 function SnpTable({ snps }) {
-  if (!snps || !snps.length) return null;
+  if (!snps || !snps.length) {
+    return (
+      <div className="agent-card snps">
+        <header>🧬 Pharmacogenomic findings</header>
+        <div className="empty">
+          No clinically actionable variants for this genotype panel and medication list.
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="agent-card snps">
-      <header>🧬 Pharmacogenomic findings</header>
+      <header>🧬 Pharmacogenomic findings ({snps.length})</header>
+      <p className="citation-intro subtle">
+        Genotype-matched only; narrative inferred from ClinVar + PubMed pulled during this run.
+      </p>
       <table className="snp-table">
         <thead>
           <tr>
@@ -240,7 +252,7 @@ function CitationsCard({ citations }) {
     <div className="agent-card citations">
       <header>📚 Evidence used in this brief ({citations.length})</header>
       <p className="citation-intro">
-        Only PMIDs tied to the recommendation or fired safety gates — each with a short inference.
+        Only PMIDs tied to the recommendation or safety gates — inferences from PubMed/LLM, not static PGx text.
       </p>
       <ul className="citation-list">
         {citations.map((c) => (

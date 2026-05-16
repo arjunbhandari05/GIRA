@@ -9,13 +9,17 @@ const api = axios.create({ baseURL: BASE, timeout: 300000 });
 export const getPatients = () => api.get('/patients');
 export const getWearable = id => api.get(`/wearable/${encodeURIComponent(id)}`);
 export const getGlucose = id => api.get(`/glucose/${encodeURIComponent(id)}`);
-export const getBrief = id => api.get(`/brief/${encodeURIComponent(id)}`);
 export const getSafety = id => api.get(`/safety/${encodeURIComponent(id)}`);
-export const getAgentBrief = (id, { refresh = false } = {}) =>
+export const getAgentBrief = (id, { refresh = false, cacheOnly = false } = {}) =>
   api.get(`/agent_brief/${encodeURIComponent(id)}`, {
-    params: refresh ? { refresh: 'true' } : {},
+    params: {
+      ...(refresh ? { refresh: 'true' } : {}),
+      ...(cacheOnly ? { cache_only: 'true' } : {}),
+    },
     timeout: 600000,
   });
+/** @deprecated Use getAgentBrief — same backend pipeline. */
+export const getBrief = (id, opts) => getAgentBrief(id, opts);
 export const clearAgentBrief = id =>
   api.delete(`/agent_brief/${encodeURIComponent(id)}`);
 export const uploadGenome = file => {
