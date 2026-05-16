@@ -1,11 +1,33 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import "@fontsource/outfit/300.css"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 
 interface GiraLogoProps {
   size?: "sm" | "md" | "lg"
   showTagline?: boolean
 }
+
+const RX_GRADIENT = "linear-gradient(90deg, #B8A8EB 0%, #6EC0E8 48%, #5ED4B4 100%)"
+
+const logoFontFamily = '"Outfit", system-ui, sans-serif'
+
+const logoTextStyle: CSSProperties = {
+  fontFamily: logoFontFamily,
+  fontWeight: 300,
+}
+
+const rxTextStyle: CSSProperties = {
+  ...logoTextStyle,
+  background: RX_GRADIENT,
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+  backgroundClip: "text",
+  color: "transparent",
+}
+
+const SLOGAN = "Your genes are just the beginning"
+const SLOGAN_TYPE_MS = 72
 
 function traceCapsule(
   ctx: CanvasRenderingContext2D,
@@ -77,12 +99,14 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const spinRef = useRef(0)
   const [textStage, setTextStage] = useState(0)
+  const [typedSlogan, setTypedSlogan] = useState("")
 
-  const scale = size === "lg" ? 1 : size === "md" ? 0.7 : 0.5
-  const canvasSize = 132 * scale
+  const scale = size === "lg" ? 1.32 : size === "md" ? 0.7 : 0.5
   const pillLength = 112 * scale
   const pillDiameter = 42 * scale
-  const pillAngle = -1.05
+  const canvasWidth = pillDiameter + 20 * scale
+  const canvasHeight = pillLength + 10 * scale
+  const pillAngle = Math.PI / 2
 
   useEffect(() => {
     const t1 = setTimeout(() => setTextStage(1), 400)
@@ -96,18 +120,32 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
   }, [])
 
   useEffect(() => {
+    if (!showTagline || textStage < 3) return
+
+    setTypedSlogan("")
+    let index = 0
+    const interval = window.setInterval(() => {
+      index += 1
+      setTypedSlogan(SLOGAN.slice(0, index))
+      if (index >= SLOGAN.length) window.clearInterval(interval)
+    }, SLOGAN_TYPE_MS)
+
+    return () => window.clearInterval(interval)
+  }, [showTagline, textStage])
+
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
     const dpr = window.devicePixelRatio || 1
-    canvas.width = canvasSize * dpr
-    canvas.height = canvasSize * dpr
+    canvas.width = canvasWidth * dpr
+    canvas.height = canvasHeight * dpr
     ctx.scale(dpr, dpr)
 
-    const cx = canvasSize / 2
-    const cy = canvasSize / 2
+    const cx = canvasWidth / 2
+    const cy = canvasHeight / 2
 
     const PILL = {
       left: "#F2F1F5",
@@ -134,7 +172,7 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
       traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
       ctx.clip()
       ctx.fillStyle = PILL.right
-      ctx.fillRect(cx, cy - pillDiameter, canvasSize, pillDiameter * 2)
+      ctx.fillRect(cx, cy - pillDiameter, canvasWidth, pillDiameter * 2)
       const rightShade = ctx.createLinearGradient(cx, cy, cx + pillLength / 2, cy)
       rightShade.addColorStop(0, "rgba(255,255,255,0)")
       rightShade.addColorStop(1, PILL.shadow)
@@ -292,7 +330,7 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
     }
 
     const draw = () => {
-      ctx.clearRect(0, 0, canvasSize, canvasSize)
+      ctx.clearRect(0, 0, canvasWidth, canvasHeight)
 
       ctx.save()
       ctx.translate(cx, cy)
@@ -315,34 +353,35 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
 
     draw()
     return () => cancelAnimationFrame(animationId)
-  }, [canvasSize, pillLength, pillDiameter, pillAngle, scale])
+  }, [canvasWidth, canvasHeight, pillLength, pillDiameter, pillAngle, scale])
 
   const fontSize = {
-    gira: size === "lg" ? 48 : size === "md" ? 32 : 24,
-    rx: size === "lg" ? 20 : size === "md" ? 14 : 10,
-    tagline: size === "lg" ? 12 : size === "md" ? 10 : 8,
-    subtitle: size === "lg" ? 15 : size === "md" ? 13 : 11,
+    gira: size === "lg" ? 58 : size === "md" ? 32 : 24,
+    rx: size === "lg" ? 26 : size === "md" ? 14 : 10,
+    tagline: size === "lg" ? 13 : size === "md" ? 10 : 8,
+    subtitle: size === "lg" ? 17 : size === "md" ? 13 : 11,
   }
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="flex items-center gap-2.5">
+    <div className="flex flex-col items-center">
+      <div className="flex items-center gap-1">
         <canvas
           ref={canvasRef}
-          width={canvasSize}
-          height={canvasSize}
-          style={{ width: canvasSize, height: canvasSize }}
-          className="flex-shrink-0"
+          width={canvasWidth}
+          height={canvasHeight}
+          style={{ width: canvasWidth, height: canvasHeight }}
+          className="flex-shrink-0 -mr-1"
           aria-hidden
         />
-        <div className="flex flex-col">
+        <div className="flex flex-col justify-center gap-0 leading-none">
           <div className="flex items-baseline gap-1">
             <span
               className="transition-all duration-500"
               style={{
+                ...logoTextStyle,
                 fontSize: fontSize.gira,
-                fontWeight: 700,
-                letterSpacing: "-0.03em",
+                lineHeight: 1,
+                letterSpacing: "-0.02em",
                 color: "#0D0B14",
                 opacity: textStage >= 1 ? 1 : 0,
                 transform: textStage >= 1 ? "translateY(0)" : "translateY(10px)",
@@ -353,9 +392,9 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
             <span
               className="transition-all duration-500"
               style={{
+                ...rxTextStyle,
                 fontSize: fontSize.rx,
-                fontWeight: 500,
-                color: "#5B3FD4",
+                lineHeight: 1,
                 opacity: textStage >= 1 ? 1 : 0,
                 transform: textStage >= 1 ? "translateY(0)" : "translateY(10px)",
               }}
@@ -364,9 +403,11 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
             </span>
           </div>
           <span
-            className="uppercase transition-all duration-500"
+            className="uppercase transition-all duration-500 mt-1"
             style={{
+              ...logoTextStyle,
               fontSize: fontSize.tagline,
+              lineHeight: 1.15,
               letterSpacing: "0.1em",
               color: "#9895A8",
               opacity: textStage >= 2 ? 1 : 0,
@@ -379,15 +420,26 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
       </div>
       {showTagline && (
         <p
-          className="italic transition-all duration-500"
+          className="relative mt-2.5 text-center italic transition-opacity duration-300"
           style={{
+            ...logoTextStyle,
             fontSize: fontSize.subtitle,
+            lineHeight: 1.3,
             color: "#5B3FD4",
             opacity: textStage >= 3 ? 1 : 0,
-            transform: textStage >= 3 ? "translateY(0)" : "translateY(8px)",
+            minHeight: "1.3em",
           }}
+          aria-label={textStage >= 3 ? SLOGAN : undefined}
         >
-          Your genes are just the beginning.
+          <span className="invisible select-none" aria-hidden>
+            {SLOGAN}
+          </span>
+          <span className="absolute inset-0 flex items-center justify-center" aria-live="polite">
+            {typedSlogan}
+            {textStage >= 3 && typedSlogan.length < SLOGAN.length && (
+              <span className="ml-px inline-block w-[2px] animate-pulse opacity-80">|</span>
+            )}
+          </span>
         </p>
       )}
     </div>

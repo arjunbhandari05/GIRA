@@ -10,8 +10,10 @@ from typing import Any, Callable
 
 from apis.clinical_trials import fetch_trials
 from apis.clinvar import fetch_clinvar
+from apis.cpic import fetch_cpic
 from apis.pharmgkb import fetch_pharmgkb
 from apis.pubmed import fetch_pubmed
+from apis.pgx_panel import PANEL_RSIDS
 from apis.rxnorm import fetch_rxnorm
 from output.brief_builder import assemble_brief
 from parsers.glucose_client import load_glucose
@@ -45,8 +47,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "get_snp_profile",
         "description": (
-            "Extract the 10 pharmacogenomic rsIDs from a patient's 23andMe genome file. "
-            "Always call this first."
+            f"Extract all {len(PANEL_RSIDS)} pharmacogenomic rsIDs from a patient's "
+            "23andMe genome file. Always call this first."
         ),
         "parameters": {"patient_id": "string"},
         "fn": _wrap(get_snp_profile),
@@ -85,15 +87,30 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "fetch_pharmgkb",
         "description": (
-            "Optional static gene-drug reference (genotype-filtered when snp_profile "
-            "is passed). Prefer fetch_clinvar + fetch_pubmed for evidence; the brief "
-            "synthesizes PGx findings from live sources, not this table."
+            f"64-SNP panel gene-drug annotations (genotype-matched when snp_profile "
+            "is passed). Returns actionable variants with evidence levels. "
+            "Use alongside fetch_cpic, fetch_clinvar, and fetch_pubmed."
         ),
         "parameters": {
-            "genes": "array of gene name strings",
-            "snp_profile": "optional — only return rows matching patient genotypes",
+            "genes": "array of gene name strings (optional)",
+            "snp_profile": "optional — return all actionable panel rows for patient genotypes",
         },
         "fn": _wrap(fetch_pharmgkb),
+    },
+    {
+        "name": "fetch_cpic",
+        "description": (
+            "Live CPIC prescribing recommendations (api.cpicpgx.org, no API key). "
+            "Matches current medications to gene–drug pairs and patient CYP/VKORC1/SLCO1B1 "
+            "genotypes. Call before generate_brief when patient is on clopidogrel, warfarin, or statins."
+        ),
+        "parameters": {
+            "current_meds": "array of medication strings",
+            "snp_profile": "object from get_snp_profile",
+            "gene": "optional single gene",
+            "drug": "optional single drug name",
+        },
+        "fn": _wrap(fetch_cpic),
     },
     {
         "name": "fetch_clinvar",

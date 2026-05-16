@@ -81,6 +81,36 @@ export async function createPatient(name: string): Promise<{
   })
 }
 
+export async function registerPatient(payload: {
+  name: string
+  password: string
+  zip?: string
+}): Promise<{
+  patient_id: string
+  name: string
+  zip?: string
+  assets: PatientAssets
+  error?: string
+}> {
+  return request("/patients/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function loginPatient(payload: {
+  patient_id: string
+  password: string
+}): Promise<{ ok?: boolean; patient_id?: string; name?: string; error?: string }> {
+  return request("/patients/login", {
+    method: "POST",
+    body: JSON.stringify({
+      patient_id: payload.patient_id.trim().toUpperCase(),
+      password: payload.password,
+    }),
+  })
+}
+
 export async function getPatientAssets(
   patientId: string
 ): Promise<PatientAssets & { error?: string }> {

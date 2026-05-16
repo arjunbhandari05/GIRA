@@ -6,9 +6,11 @@ SQLite persistence for patients, intake forms, and cached agent briefs.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
+import secrets
 import sqlite3
 import string
 from datetime import datetime, timezone
@@ -34,12 +36,35 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000
+    )
+    return f"{salt}${digest.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt, expected = stored.split("$", 1)
+    except ValueError:
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100_000
+    )
+    return secrets.compare_digest(digest.hex(), expected)
+
+
 def ensure_schema() -> None:
     """Add columns/tables introduced after initial seed without dropping data."""
     conn = _connect()
     cols = {r[1] for r in conn.execute("PRAGMA table_info(patients)").fetchall()}
     if "intake_json" not in cols:
         conn.execute("ALTER TABLE patients ADD COLUMN intake_json TEXT")
+    if "password_hash" not in cols:
+        conn.execute("ALTER TABLE patients ADD COLUMN password_hash TEXT")
+    if "created_at" not in cols:
+        conn.execute("ALTER TABLE patients ADD COLUMN created_at TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_briefs (
@@ -138,33 +163,78 @@ def _new_patient_id() -> str:
 
 def create_patient(name: str) -> dict[str, Any]:
     """Create an empty patient row (name only); genome and intake added later."""
+    return register_patient(name, password=None, zip_code="")
+
+
+def register_patient(
+    name: str,
+    password: str | None = None,
+    zip_code: str = "",
+) -> dict[str, Any]:
+    """Create a patient account with optional password and empty intake shell."""
+    from schemas.patient_intake import empty_intake
+
     ensure_schema()
     patient_id = _new_patient_id()
     display_name = (name or "").strip() or "New patient"
+    zip_val = (zip_code or "").strip()
+    created_at = datetime.now(timezone.utc).isoformat()
+    intake = empty_intake(patient_id, submitted_by="patient")
+    password_hash = _hash_password(password) if password else None
+
     conn = _connect()
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO patients (
             patient_id, name, zip, meds, next_appointment_iso,
-            snp_profile_json, parsed_at, intake_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            snp_profile_json, parsed_at, intake_json, password_hash, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             patient_id,
             display_name,
-            "",
+            zip_val,
             json.dumps([]),
             "",
             json.dumps({}),
             None,
-            None,
+            json.dumps(intake),
+            password_hash,
+            created_at,
         ),
     )
     conn.commit()
     conn.close()
     row = read(patient_id)
     return row or {"patient_id": patient_id, "name": display_name}
+
+
+def get_password_hash(patient_id: str) -> str | None:
+    ensure_schema()
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT password_hash FROM patients WHERE patient_id = ?",
+        (patient_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return row[0]
+
+
+def verify_patient_login(patient_id: str, password: str) -> bool:
+    """Registered accounts require password; legacy demo rows allow ID-only sign-in."""
+    if not patient_exists(patient_id):
+        return False
+    stored = get_password_hash(patient_id)
+    if not stored:
+        return True
+    if not (password or "").strip():
+        return False
+    return _verify_password(password, stored)
 
 
 def update_genome(patient_id: str, snp_profile: dict[str, Any]) -> dict[str, Any]:

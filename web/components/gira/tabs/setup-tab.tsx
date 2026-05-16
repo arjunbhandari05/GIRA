@@ -16,6 +16,8 @@ interface SetupTabProps {
   patientId: string
   patientName: string
   onAssetsUpdated?: () => void
+  /** Patient-facing copy vs clinician workspace */
+  audience?: "patient" | "provider"
 }
 
 function StatusRow({
@@ -91,7 +93,13 @@ function UploadCard({
   )
 }
 
-export default function SetupTab({ patientId, patientName, onAssetsUpdated }: SetupTabProps) {
+export default function SetupTab({
+  patientId,
+  patientName,
+  onAssetsUpdated,
+  audience = "provider",
+}: SetupTabProps) {
+  const isPatient = audience === "patient"
   const [assets, setAssets] = useState<PatientAssets | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -152,13 +160,17 @@ export default function SetupTab({ patientId, patientName, onAssetsUpdated }: Se
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Patient workspace</p>
+        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">
+          {isPatient ? "Your workspace" : "Patient workspace"}
+        </p>
         <p className="text-[13px] text-[#6B6778] mt-1">
           <span className="font-medium text-[#0D0B14]">{patientName}</span>
           <span className="font-mono text-[12px] ml-2 text-[#9895A8]">{patientId}</span>
         </p>
         <p className="text-[13px] text-[#6B6778] mt-2">
-          Upload each data source for this patient. When ready, open the Brief tab and generate the GIRA brief.
+          {isPatient
+            ? "Upload each data source for your record. Your care team will use this to prepare for your visit."
+            : "Upload each data source for this patient. When ready, open the Brief tab and generate the GIRA brief."}
         </p>
       </div>
 
@@ -217,8 +229,9 @@ export default function SetupTab({ patientId, patientName, onAssetsUpdated }: Se
       </div>
 
       <p className="text-[12px] text-[#9895A8]">
-        You can also edit intake manually on the Intake tab. Metrics appear on the Metrics tab after WHOOP and CGM
-        files are uploaded.
+        {isPatient
+          ? "Live metrics appear on the Live Metrics tab after WHOOP and CGM files are uploaded."
+          : "You can also edit intake manually on the Intake tab. Metrics appear on the Metrics tab after WHOOP and CGM files are uploaded."}
       </p>
     </div>
   )

@@ -43,7 +43,13 @@ export default function IntakeFormTab({
           setError(res.error)
           setIntake(emptyIntake(patientId))
         } else if (res.intake) {
-          setIntake({ ...emptyIntake(patientId), ...res.intake, patientId })
+          const base = emptyIntake(patientId)
+          setIntake({
+            ...base,
+            ...res.intake,
+            patientId,
+            visitNotes: { ...base.visitNotes, ...(res.intake.visitNotes || {}) },
+          })
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load intake")
@@ -111,7 +117,7 @@ export default function IntakeFormTab({
       <div>
         <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Intake Form</p>
         <p className="text-[13px] text-[#6B6778] mt-1">
-          Fill manually or upload JSON on the Setup tab.
+          Fill manually here, or ask the patient to upload intake JSON on their Setup page.
         </p>
       </div>
 
@@ -376,12 +382,54 @@ export default function IntakeFormTab({
         </div>
       </section>
 
+      <section className="border border-[#E8E6F0] rounded-lg bg-white p-5 space-y-4">
+        <div>
+          <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8] mb-1">
+            Visit notes (subjective)
+          </p>
+          <p className="text-[12px] text-[#6B6778] mb-4">
+            What the patient reported today — pain, sleep, mood. GIRA uses this for counseling; HRV and CGM
+            come from wearable uploads, not this form.
+          </p>
+        </div>
+        {(
+          [
+            ["chiefComplaint", "Chief complaint", "Why they came in today…"],
+            ["painSymptoms", "Pain & symptoms", "Location, severity, triggers, what makes it better/worse…"],
+            ["sleepEnergy", "Sleep & energy", "Hours of sleep, quality, daytime fatigue…"],
+            ["moodFeeling", "Mood & how they feel", "Anxiety, stress, motivation, overall wellbeing…"],
+          ] as const
+        ).map(([key, label, placeholder]) => (
+          <div key={key}>
+            <label className="block text-[11px] font-semibold uppercase text-[#9895A8] mb-2">{label}</label>
+            <textarea
+              rows={2}
+              value={intake.visitNotes?.[key] ?? ""}
+              onChange={(e) =>
+                setIntake({
+                  ...intake,
+                  visitNotes: { ...intake.visitNotes, [key]: e.target.value },
+                })
+              }
+              placeholder={placeholder}
+              className="w-full px-3 py-2.5 border border-[#E8E6F0] rounded-md text-[14px] resize-none focus:outline-none focus:border-[#5B3FD4]"
+            />
+          </div>
+        ))}
+      </section>
+
       <section className="border border-[#E8E6F0] rounded-lg bg-white p-5">
-        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8] mb-4">Clinician Notes</p>
+        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8] mb-2">
+          Clinician chart summary
+        </p>
+        <p className="text-[12px] text-[#6B6778] mb-3">
+          PGx and medication context only — do not paste WHOOP/HRV or CGM numbers here.
+        </p>
         <textarea
           rows={3}
           value={intake.clinicianNotes}
           onChange={(e) => setIntake({ ...intake, clinicianNotes: e.target.value })}
+          placeholder="e.g. Active statin myopathy; poor clopidogrel metabolizer — address before intensifying diabetes therapy."
           className="w-full px-3 py-2.5 border border-[#E8E6F0] rounded-md text-[14px] resize-none focus:outline-none focus:border-[#5B3FD4]"
         />
       </section>

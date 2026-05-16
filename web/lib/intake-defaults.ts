@@ -64,6 +64,12 @@ export function emptyIntake(patientId: string): PatientIntake {
     },
     comorbidities: [],
     familyHistory: [],
+    visitNotes: {
+      chiefComplaint: "",
+      painSymptoms: "",
+      sleepEnergy: "",
+      moodFeeling: "",
+    },
     clinicianNotes: "",
   }
 }

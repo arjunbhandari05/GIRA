@@ -21,7 +21,9 @@ from agent.memory import (
     ensure_schema,
     patient_exists,
     read as agent_read_patient,
+    register_patient,
     update_genome,
+    verify_patient_login,
     write_intake,
 )
 from server.patient_files import (
@@ -142,6 +144,54 @@ def post_patient(payload: dict) -> dict:
         "patient_id": pid,
         "name": patient.get("name"),
         "assets": patient_assets_status(pid, snps if isinstance(snps, dict) else {}),
+    }
+
+
+@app.post("/patients/register")
+def post_patient_register(payload: dict) -> dict:
+    """Self-service patient sign-up with password (stored hashed in SQLite)."""
+    body = payload or {}
+    name = str(body.get("name") or "").strip()
+    password = str(body.get("password") or "")
+    zip_code = str(body.get("zip") or "").strip()
+
+    if not name:
+        return {"error": "name is required"}
+    if len(password) < 6:
+        return {"error": "password must be at least 6 characters"}
+
+    patient = register_patient(name, password=password, zip_code=zip_code)
+    pid = patient.get("patient_id")
+    snps = patient.get("snp_profile") or {}
+    return {
+        "patient_id": pid,
+        "name": patient.get("name"),
+        "zip": patient.get("zip") or zip_code,
+        "assets": patient_assets_status(pid, snps if isinstance(snps, dict) else {}),
+    }
+
+
+@app.post("/patients/login")
+def post_patient_login(payload: dict) -> dict:
+    """Verify patient ID and password."""
+    body = payload or {}
+    patient_id = str(body.get("patient_id") or "").strip().upper()
+    password = str(body.get("password") or "")
+
+    if not patient_id:
+        return {"error": "patient_id is required"}
+
+    if not patient_exists(patient_id):
+        return {"error": "patient not found"}
+
+    if not verify_patient_login(patient_id, password):
+        return {"error": "invalid password"}
+
+    patient = agent_read_patient(patient_id)
+    return {
+        "ok": True,
+        "patient_id": patient_id,
+        "name": (patient or {}).get("name"),
     }
 
 

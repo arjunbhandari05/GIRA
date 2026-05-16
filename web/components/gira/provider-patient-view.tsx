@@ -1,16 +1,14 @@
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, FileText, ClipboardList, Activity, Dna, FolderOpen } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ArrowLeft, FileText, ClipboardList, Activity, Dna } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import type { Patient } from "@/lib/types"
 import BriefTab from "./tabs/brief-tab"
 import IntakeFormTab from "./tabs/intake-form-tab"
 import WhoopDataTab from "./tabs/whoop-data-tab"
 import GenomeTab from "./tabs/genome-tab"
-import SetupTab from "./tabs/setup-tab"
-
-type Tab = "setup" | "brief" | "intake" | "whoop" | "genome"
+type Tab = "brief" | "intake" | "whoop" | "genome"
 
 interface ProviderPatientViewProps {
   patient: Patient
@@ -21,7 +19,6 @@ interface ProviderPatientViewProps {
 }
 
 const tabConfig: { id: Tab; label: string; icon: typeof FileText }[] = [
-  { id: "setup", label: "Setup", icon: FolderOpen },
   { id: "brief", label: "Brief", icon: FileText },
   { id: "intake", label: "Intake", icon: ClipboardList },
   { id: "whoop", label: "Metrics", icon: Activity },
@@ -32,12 +29,16 @@ export default function ProviderPatientView({
   patient,
   onBack,
   onPatientUpdated,
-  initialTab = "setup",
+  initialTab = "brief",
 }: ProviderPatientViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
   const [dataRefreshKey, setDataRefreshKey] = useState(0)
 
   const bumpDataRefresh = () => setDataRefreshKey((k) => k + 1)
+
+  useEffect(() => {
+    setActiveTab(initialTab)
+  }, [initialTab, patient.id])
 
   return (
     <div className="min-h-screen bg-white">
@@ -104,16 +105,6 @@ export default function ProviderPatientView({
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {activeTab === "setup" && (
-              <SetupTab
-                patientId={patient.id}
-                patientName={patient.name}
-                onAssetsUpdated={() => {
-                  onPatientUpdated?.()
-                  bumpDataRefresh()
-                }}
-              />
-            )}
             {activeTab === "brief" && (
               <BriefTab
                 patient={patient}

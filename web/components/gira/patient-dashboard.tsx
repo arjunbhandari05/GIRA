@@ -25,7 +25,7 @@ import {
   intakeMedications,
   plainMedicationChangeSentence,
 } from "@/lib/patient-plain"
-import PatientSetupTab from "./tabs/patient-setup-tab"
+import SetupTab from "./tabs/setup-tab"
 import PatientMetricsTab from "./tabs/patient-metrics-tab"
 
 interface PatientDashboardProps {
@@ -142,7 +142,13 @@ export default function PatientDashboard({ patientId, onSignOut }: PatientDashbo
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-6">
-        {tab === "setup" && <PatientSetupTab patientId={patientId} />}
+        {tab === "setup" && (
+          <SetupTab
+            patientId={patientId}
+            patientName={name}
+            audience="patient"
+          />
+        )}
         {tab === "metrics" && <PatientMetricsTab patientId={patientId} />}
 
         {tab === "home" && !hasBrief && (

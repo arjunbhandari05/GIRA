@@ -34,7 +34,7 @@ export default function GIRAApp() {
   const [patientsLoading, setPatientsLoading] = useState(false)
   const [patientsError, setPatientsError] = useState<string | null>(null)
   const [sessionPatientId, setSessionPatientId] = useState("")
-  const [patientInitialTab, setPatientInitialTab] = useState<"setup" | "brief">("setup")
+  const [patientInitialTab, setPatientInitialTab] = useState<"brief" | "intake" | "whoop" | "genome">("brief")
 
   const loadPatients = useCallback(async () => {
     setPatientsLoading(true)
@@ -78,7 +78,7 @@ export default function GIRAApp() {
 
   const handlePatientSelect = (patient: Patient) => {
     setSelectedPatient(patient)
-    setPatientInitialTab("setup")
+    setPatientInitialTab("brief")
     setCurrentScreen("provider-patient-view")
   }
 
@@ -92,7 +92,10 @@ export default function GIRAApp() {
     setSelectedPatient(null)
   }
 
-  const openPatientById = async (patientId: string, tab: "setup" | "brief" = "setup") => {
+  const openPatientById = async (
+    patientId: string,
+    tab: "brief" | "intake" | "whoop" | "genome" = "brief"
+  ) => {
     await loadPatients()
     const flags = await getSafetyFlags(patientId).catch(() => [])
     const rows = await listPatients()
@@ -106,7 +109,7 @@ export default function GIRAApp() {
   }
 
   const handlePatientCreated = (patientId: string) => {
-    openPatientById(patientId, "setup")
+    openPatientById(patientId, "brief")
   }
 
   return (

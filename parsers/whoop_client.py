@@ -82,11 +82,57 @@ def _whoop_candidate_paths(patient_id: str) -> list[Path]:
     return out
 
 
+def _coerce_whoop_raw(raw: dict[str, Any]) -> dict[str, Any]:
+    """Map bundled demo WHOOP JSON (summary + daily[]) into legacy metric series."""
+    if any(isinstance(raw.get(metric), list) and raw.get(metric) for metric in METRICS):
+        return raw
+
+    daily = raw.get("daily")
+    if not isinstance(daily, list) or not daily:
+        return raw
+
+    dates: list[str] = []
+    series = {metric: [] for metric in METRICS}
+    field_map = {
+        "hrv_ms": "hrv_rmssd",
+        "rhr_bpm": "resting_hr",
+        "spo2_pct": "spo2",
+        "skin_temp_c": "skin_temp_c",
+        "recovery_score": "recovery_score",
+    }
+
+    for row in daily:
+        if not isinstance(row, dict):
+            continue
+        dates.append(str(row.get("date") or ""))
+        for metric, source_key in field_map.items():
+            value = row.get(source_key)
+            if value is None:
+                continue
+            try:
+                series[metric].append(float(value))
+            except (TypeError, ValueError):
+                continue
+
+    summary = raw.get("summary") if isinstance(raw.get("summary"), dict) else {}
+    if summary and not series["hrv_ms"] and summary.get("avg_hrv_rmssd") is not None:
+        avg = float(summary["avg_hrv_rmssd"])
+        series["hrv_ms"] = [avg] * min(len(daily), 30)
+    if summary and not series["rhr_bpm"] and summary.get("avg_resting_hr") is not None:
+        avg = float(summary["avg_resting_hr"])
+        series["rhr_bpm"] = [avg] * min(len(daily), 30)
+    if summary and not series["recovery_score"] and summary.get("avg_recovery_score") is not None:
+        avg = float(summary["avg_recovery_score"])
+        series["recovery_score"] = [avg] * min(len(daily), 30)
+
+    return {**raw, "dates": dates or raw.get("dates", []), **series}
+
+
 def _load_whoop_file(patient_id: str) -> dict[str, Any]:
     for path in _whoop_candidate_paths(patient_id):
         if path.is_file():
             with path.open("r", encoding="utf-8") as handle:
-                return json.load(handle)
+                return _coerce_whoop_raw(json.load(handle))
     raise FileNotFoundError(_whoop_candidate_paths(patient_id)[0])
 
 

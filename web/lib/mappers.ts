@@ -122,7 +122,8 @@ export function wearableTrendToUi(trend?: string): MetricTrend {
 const TOOL_LABELS: Record<string, string> = {
   get_snp_profile: "Pharmacogenomic SNP profile",
   get_patient_intake: "Clinician intake & medications",
-  fetch_pharmgkb: "PharmGKB drug–gene evidence",
+  fetch_pharmgkb: "64-SNP PharmGKB panel evidence",
+  fetch_cpic: "CPIC live prescribing guidelines",
   fetch_clinvar: "ClinVar variant lookup",
   fetch_pubmed: "PubMed literature search",
   fetch_trials: "Clinical trial scout",
@@ -144,7 +145,8 @@ export const TOOL_CONSOLE_LABELS: Record<string, string> = {
   generate_brief: "Brief synthesis",
   fetch_glucose: "CGM glucose trends",
   get_patient_intake: "Patient intake load",
-  fetch_pharmgkb: "PharmGKB evidence",
+  fetch_pharmgkb: "PharmGKB panel evidence",
+  fetch_cpic: "CPIC guidelines",
   fetch_rxnorm: "RxNorm interactions",
 }
 
@@ -189,7 +191,16 @@ function summarizeTraceResult(step: TraceStep): string {
     }
     case "get_patient_intake": {
       const meds = Number(s.med_count ?? 0)
-      return s.has_intake ? `${meds} medication(s) on chart` : "No clinical intake on file"
+      const subjective = Boolean(s.has_subjective)
+      if (!s.has_intake) return "No clinical intake on file"
+      return subjective
+        ? `${meds} medication(s) · visit notes loaded`
+        : `${meds} medication(s) on chart`
+    }
+    case "fetch_cpic": {
+      const n = Number(s.recommendations ?? s.hits ?? 0)
+      const drug = (s.drugs as string[] | undefined)?.[0]
+      return n ? `${n} CPIC recommendation(s)${drug ? ` · ${drug}` : ""}` : "No CPIC matches for current meds"
     }
     case "fetch_glucose": {
       const parts: string[] = []

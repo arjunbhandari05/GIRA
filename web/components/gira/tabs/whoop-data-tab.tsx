@@ -5,6 +5,8 @@ import { Heart, Activity, Droplet, Moon, TrendingUp, TrendingDown, Minus, Loader
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts"
 import { getGlucose, getWearable } from "@/lib/api"
 import { wearableTrendToUi } from "@/lib/mappers"
+import LiveMetricValue from "../live-metric-value"
+import RecoveryWeekChart from "../recovery-week-chart"
 
 interface WhoopDataTabProps {
   patientId: string
@@ -32,6 +34,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
   const [hrvData, setHrvData] = useState<{ day: number; value: number }[]>([])
   const [glucoseData, setGlucoseData] = useState<{ day: number; value: number }[]>([])
   const [recoveryData, setRecoveryData] = useState<{ day: string; score: number }[]>([])
+  const [metricBases, setMetricBases] = useState<{ hrv?: number; glucose?: number }>({})
   const [insight, setInsight] = useState<string | null>(null)
 
   useEffect(() => {
@@ -52,7 +55,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         setGlucoseMissing(glucoseErr)
         if (whoopErr && glucoseErr) {
           setError(
-            "No wearable or CGM files for this patient. Upload them on the Setup tab."
+            "No wearable or CGM files for this patient. The patient can upload them on their Setup page."
           )
         } else if (whoopErr) {
           setError(String(whoop.error))
@@ -74,10 +77,14 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         const gTrend = glucose.trend_direction as string | undefined
         const gWow = glucose.trend_delta_mgdl as number | undefined
 
+        const hrvBase = hrv.avg_30d != null ? Number(hrv.avg_30d) : undefined
+        const glucoseBase = gAvg != null ? Math.round(gAvg) : undefined
+        setMetricBases({ hrv: hrvBase, glucose: glucoseBase })
+
         setMetrics([
           {
             label: "Heart Rate Variability",
-            value: hrv.avg_30d != null ? String(hrv.avg_30d) : "—",
+            value: hrvBase != null ? String(Math.round(hrvBase)) : "—",
             unit: "ms",
             trend: wearableTrendToUi(hrv.trend),
             change: `${hrv.wow_pct != null && hrv.wow_pct > 0 ? "+" : ""}${hrv.wow_pct ?? 0}%`,
@@ -95,7 +102,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
           },
           {
             label: "Blood Glucose (CGM)",
-            value: gAvg != null ? String(Math.round(gAvg)) : "—",
+            value: glucoseBase != null ? String(glucoseBase) : "—",
             unit: "mg/dL",
             trend:
               gTrend === "improving" ? "down" : gTrend === "worsening" ? "up" : "stable",
@@ -162,12 +169,6 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
     return <Minus className="w-4 h-4" />
   }
 
-  const getRecoveryColor = (score: number) => {
-    if (score >= 67) return "bg-[#1A9E6E]"
-    if (score >= 34) return "bg-[#B45309]"
-    return "bg-[#C0392B]"
-  }
-
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-[#9895A8] py-12 justify-center">
@@ -203,9 +204,9 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {metrics.map((metric) => {
           const Icon = metric.icon
-          const pulse =
-            liveMode &&
-            (metric.label.includes("Variability") || metric.label.includes("Recovery"))
+          const isHrv = metric.label.includes("Variability")
+          const isGlucose = metric.label.includes("Glucose")
+          const showLive = liveMode && (isHrv || isGlucose)
           return (
             <div key={metric.label} className="border border-[#E8E6F0] rounded-lg bg-white p-5">
               <div className="flex items-start justify-between mb-3">
@@ -215,13 +216,24 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#9895A8] mb-1">
                 {metric.label}
               </p>
-              <div className="flex items-baseline gap-1">
-                <span
-                  className={`text-[24px] font-semibold text-[#0D0B14] ${pulse ? "live-metric-pulse" : ""}`}
-                >
-                  {metric.value}
-                </span>
-                <span className="text-[13px] text-[#9895A8]">{metric.unit}</span>
+              <div className="flex items-baseline gap-1 flex-wrap">
+                {isHrv && showLive ? (
+                  <LiveMetricValue base={metricBases.hrv} enabled unit={metric.unit} jitter={4} />
+                ) : isGlucose && showLive ? (
+                  <LiveMetricValue
+                    base={metricBases.glucose}
+                    enabled
+                    unit={metric.unit}
+                    jitter={4}
+                  />
+                ) : (
+                  <>
+                    <span className="text-[24px] font-semibold text-[#0D0B14] tabular-nums">
+                      {metric.value}
+                    </span>
+                    <span className="text-[13px] text-[#9895A8]">{metric.unit}</span>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-1 mt-2 text-[12px] text-[#6B6778]">
                 {getTrendIcon(metric.trend)}
@@ -267,21 +279,7 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
       )}
 
       {recoveryData.length > 0 && (
-        <div className="border border-[#E8E6F0] rounded-lg bg-white p-5">
-          <p className="text-[11px] font-semibold uppercase text-[#9895A8] mb-4">Recovery</p>
-          <div className="flex gap-2">
-            {recoveryData.map((d) => (
-              <div key={d.day} className="flex-1 text-center">
-                <div
-                  className={`h-16 rounded-md ${getRecoveryColor(d.score)} opacity-80 mx-auto max-w-[48px]`}
-                  style={{ height: `${Math.max(24, d.score)}px` }}
-                />
-                <p className="text-[11px] text-[#9895A8] mt-2">{d.day}</p>
-                <p className="text-[12px] font-medium">{d.score}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+        <RecoveryWeekChart data={recoveryData} liveMode={liveMode} />
       )}
     </div>
   )

@@ -9,6 +9,101 @@ from reasoning.pgx import build_relevant_snp_rows
 from reasoning.pgx_synthesis import synthesize_pgx_evidence
 from schemas.patient_intake import format_intake_for_llm, intake_has_clinical_data
 
+CATEGORY_LABELS = {
+    "t2d_risk": "T2D Disease Risk",
+    "metformin": "Metformin Response",
+    "glp1": "GLP-1 & Incretin Response",
+    "safety": "Drug Safety & Metabolism",
+    "complications": "Complication Prediction",
+    "sglt2": "SGLT2 & Newer Drug Response",
+}
+
+T2D_RISK_RSIDS = [
+    "rs7903146",
+    "rs4402960",
+    "rs10811661",
+    "rs1111875",
+    "rs7754840",
+    "rs13266634",
+    "rs1387153",
+    "rs10830963",
+    "rs7578597",
+    "rs4607103",
+    "rs10923931",
+    "rs4430796",
+    "rs1799884",
+    "rs7961581",
+]
+
+T2D_UNFAVORABLE_GENOTYPES = {
+    "rs7903146": {"TT"},
+    "rs4402960": {"TT", "CT", "TC"},
+    "rs10811661": {"TT"},
+    "rs1111875": {"TT", "CT", "TC"},
+    "rs7754840": {"CC", "CT", "TC"},
+    "rs13266634": {"CC"},
+    "rs1387153": {"TT", "CT", "TC"},
+    "rs10830963": {"GG", "GT", "TG"},
+    "rs7578597": {"TT", "CT", "TC"},
+    "rs4607103": {"GG", "GT", "TG"},
+    "rs10923931": {"CC", "CT", "TC"},
+    "rs4430796": {"CC", "CT", "TC"},
+    "rs1799884": {"TT", "CT", "TC"},
+    "rs7961581": {"CC", "CT", "TC"},
+}
+
+
+def compute_t2d_risk_score(snp_profile: dict) -> dict:
+    count = 0
+    for rsid in T2D_RISK_RSIDS:
+        snp = snp_profile.get(rsid, {})
+        gt = snp.get("genotype", "") if isinstance(snp, dict) else snp
+        unfavorable = T2D_UNFAVORABLE_GENOTYPES.get(rsid, set())
+        if gt and gt != "--" and gt in unfavorable:
+            count += 1
+    level = "high" if count >= 8 else "elevated" if count >= 4 else "standard"
+    return {
+        "unfavorable_count": count,
+        "total_assessed": len(T2D_RISK_RSIDS),
+        "level": level,
+        "label": {
+            "high": "Strong genetic T2D predisposition — aggressive early treatment indicated",
+            "elevated": "Above-average genetic T2D burden — enhanced monitoring recommended",
+            "standard": "Standard genetic T2D risk profile",
+        }[level],
+    }
+
+
+def _enrich_snp_summary(snp_profile: dict, rows: list[dict]) -> list[dict]:
+    enriched = []
+    for row in rows:
+        rsid = row.get("rsid", "")
+        meta = snp_profile.get(rsid, {})
+        if isinstance(meta, dict):
+            category = meta.get("category", "other")
+            enriched.append(
+                {
+                    **row,
+                    "category": category,
+                    "category_label": CATEGORY_LABELS.get(category, category),
+                    "description": meta.get("description"),
+                    "population_freq": meta.get("population_freq"),
+                    "population_label": meta.get("population_label"),
+                }
+            )
+        else:
+            enriched.append(row)
+    enriched.sort(key=lambda r: (r.get("category", ""), r.get("gene", ""), r.get("rsid", "")))
+    return enriched
+
+
+def _group_snp_summary_by_category(rows: list[dict]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        label = row.get("category_label") or row.get("category") or "Other"
+        grouped.setdefault(label, []).append(row)
+    return grouped
+
 
 def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dict[str, Any]:
     """
@@ -35,10 +130,16 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
     patient = findings.get("patient") or {}
     current_meds = patient.get("current_meds") or patient.get("meds") or []
     clinvar_raw = findings.get("fetch_clinvar")
+    cpic_raw = findings.get("fetch_cpic")
 
-    snp_summary = build_relevant_snp_rows(
-        snp_profile, safety_flags, current_meds, clinvar_raw
+    snp_summary = _enrich_snp_summary(
+        snp_profile,
+        build_relevant_snp_rows(
+            snp_profile, safety_flags, current_meds, clinvar_raw, cpic_raw
+        ),
     )
+    t2d_risk_score = compute_t2d_risk_score(snp_profile)
+    snp_summary_by_category = _group_snp_summary_by_category(snp_summary)
     recommendation = _recommendation(
         snp_profile, current_meds, glucose, whoop, safety_flags, rxnorm_hits
     )
@@ -47,8 +148,11 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
         or findings.get("_fast_brief")
         or os.getenv("AGENT_MODE", "parallel").strip().lower() == "parallel"
     )
-    citations = _citation_set_used_only(
-        safety_flags, pubmed_hits, recommendation, skip_live_pmid_fetch=fast_brief
+    citations = _build_citations(
+        safety_flags,
+        pubmed_hits,
+        recommendation,
+        snp_summary,
     )
 
     used_pmids = [str(c.get("pmid")) for c in citations if c.get("pmid")]
@@ -88,6 +192,8 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
             for f in safety_flags
         ],
         "snp_summary": snp_summary,
+        "snp_summary_by_category": snp_summary_by_category,
+        "t2d_risk_score": t2d_risk_score,
         "recommendation": recommendation,
         "wearable_insight": wearable_insight,
         "glucose_insight": glucose_insight,
@@ -98,9 +204,18 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
             patient, snp_profile, glucose, safety_flags, recommendation
         ),
         "intake_summary": _intake_summary(patient),
+        "cpic_recommendations": _cpic_list(cpic_raw),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     return out
+
+
+def _cpic_list(cpic_raw: Any) -> list[dict]:
+    if isinstance(cpic_raw, dict):
+        return [r for r in (cpic_raw.get("recommendations") or []) if isinstance(r, dict)]
+    if isinstance(cpic_raw, list):
+        return [r for r in cpic_raw if isinstance(r, dict)]
+    return []
 
 
 def _as_list(value: Any) -> list:
@@ -244,9 +359,33 @@ def _recommendation(
         "switch_required": False,
         "discontinue": None,
         "start": None,
+        "actions": [],
         "rationale": [],
         "supporting_pmids": [],
     }
+
+    def _add_switch(
+        discontinue: str,
+        start: str,
+        rationale: str,
+        pmids: list[str],
+    ) -> None:
+        rec["switch_required"] = True
+        rec["actions"].append(
+            {
+                "discontinue": discontinue,
+                "start": start,
+                "rationale": rationale,
+                "pmids": pmids,
+            }
+        )
+        if not rec["discontinue"]:
+            rec["discontinue"] = discontinue
+            rec["start"] = start
+        rec["rationale"].append(rationale)
+        for p in pmids:
+            if p and p not in rec["supporting_pmids"]:
+                rec["supporting_pmids"].append(p)
 
     is_metformin_nonresponse = (
         on_metformin
@@ -257,40 +396,34 @@ def _recommendation(
     )
 
     if is_metformin_nonresponse:
-        rec["switch_required"] = True
-        rec["discontinue"] = "metformin"
-        rec["start"] = "semaglutide"
-        rec["rationale"].append(
+        rationale = (
             f"TCF7L2 {tcf7l2} + SLC22A1 {slc22a1} predict reduced metformin response; "
             f"glucose TIR {tir}% with trend '{trend}' confirms non-response after 30 days."
         )
-        rec["supporting_pmids"].extend(["38421109", "29326107", "21378095"])
+        pmids = ["38421109", "29326107", "21378095"]
         if fto == "AA":
-            rec["rationale"].append(
-                "FTO AA suggests enhanced GLP-1-mediated weight loss response."
-            )
-            rec["supporting_pmids"].append("23334450")
+            rationale += " FTO AA suggests enhanced GLP-1-mediated weight loss response."
+            pmids.append("23334450")
+        _add_switch("metformin", "semaglutide", rationale, pmids)
 
-    statin_meds = [m for m in meds_lower if any(s in m for s in ("statin",))]
+    statin_meds = [m for m in meds_lower if any(s in m for s in ("statin", "atorvastatin", "simvastatin", "rosuvastatin", "pravastatin", "lovastatin"))]
     slco = (snp_profile.get("rs4149056") or {}).get("genotype", "")
     if statin_meds and slco == "TT":
-        rec["switch_required"] = True
-        rec["discontinue"] = rec["discontinue"] or statin_meds[0]
-        rec["start"] = rec["start"] or "pravastatin"
-        rec["rationale"].append(
-            "SLCO1B1 TT — statin myopathy risk 16.9x; pravastatin or rosuvastatin preferred."
+        _add_switch(
+            statin_meds[0],
+            "pravastatin",
+            "SLCO1B1 TT — statin myopathy risk 16.9x; pravastatin or rosuvastatin preferred.",
+            ["18987363"],
         )
-        rec["supporting_pmids"].append("18987363")
 
     cyp = (snp_profile.get("rs4244285") or {}).get("genotype", "")
     if any("clopidogrel" in m for m in meds_lower) and cyp == "AA":
-        rec["switch_required"] = True
-        rec["discontinue"] = rec["discontinue"] or "clopidogrel"
-        rec["start"] = rec["start"] or "prasugrel"
-        rec["rationale"].append(
-            "CYP2C19 *2/*2 — clopidogrel ineffective; switch to prasugrel or ticagrelor."
+        _add_switch(
+            "clopidogrel",
+            "prasugrel",
+            "CYP2C19 *2/*2 — clopidogrel ineffective; switch to prasugrel or ticagrelor.",
+            ["19106084"],
         )
-        rec["supporting_pmids"].append("19106084")
 
     if not rec["switch_required"]:
         if controlled:
@@ -343,42 +476,50 @@ def _citation_inference(
     return "Referenced in this brief as supporting literature."
 
 
-def _citation_set_used_only(
+def _build_citations(
     safety_flags: list,
     pubmed_hits: list[dict],
     recommendation: dict[str, Any],
-    *,
-    skip_live_pmid_fetch: bool = False,
+    snp_summary: list[dict],
 ) -> list[dict]:
     """
-    Only PMIDs that materially support this brief: recommendation.supporting_pmids
-    plus safety-flag PMIDs. No bulk PubMed dump of unrelated articles.
+    PubMed citations for the brief: decision PMIDs, safety-flag PMIDs, panel PMIDs,
+    and articles returned by live gene+drug searches. Always resolves titles via NCBI.
     """
     used: list[str] = []
     seen: set[str] = set()
 
-    for pmid in recommendation.get("supporting_pmids") or []:
-        s = str(pmid).strip()
+    def _add_pmid(raw: Any) -> None:
+        s = str(raw or "").strip()
         if s and s not in seen:
             seen.add(s)
             used.append(s)
 
+    for pmid in recommendation.get("supporting_pmids") or []:
+        _add_pmid(pmid)
+    for action in recommendation.get("actions") or []:
+        if isinstance(action, dict):
+            for pmid in action.get("pmids") or []:
+                _add_pmid(pmid)
     for flag in safety_flags:
-        s = str(flag.get("pmid") or "").strip()
-        if s and s not in seen:
-            seen.add(s)
-            used.append(s)
+        _add_pmid(flag.get("pmid"))
+    for row in snp_summary:
+        if isinstance(row, dict):
+            _add_pmid(row.get("pmid"))
 
     by_pmid: dict[str, dict] = {}
     for article in pubmed_hits:
+        if not isinstance(article, dict):
+            continue
         p = str(article.get("pmid") or "").strip()
         if p:
             by_pmid[p] = article
+            _add_pmid(p)
 
-    missing = [p for p in used if p not in by_pmid or not (by_pmid[p].get("title"))]
-    if missing and not skip_live_pmid_fetch:
+    to_resolve = [p for p in used if p not in by_pmid or not (by_pmid.get(p) or {}).get("title")]
+    if to_resolve:
         try:
-            extra = fetch_pubmed_articles_for_pmids(missing)
+            extra = fetch_pubmed_articles_for_pmids(to_resolve)
             for row in extra.get("articles") or []:
                 if isinstance(row, dict):
                     p = str(row.get("pmid") or "").strip()
@@ -389,12 +530,8 @@ def _citation_set_used_only(
 
     out: list[dict] = []
     for pmid in used:
-        row = by_pmid.get(pmid)
-        if not row:
-            continue
-        title = (row.get("title") or "").strip()
-        if not title:
-            continue
+        row = by_pmid.get(pmid) or {}
+        title = (row.get("title") or "").strip() or f"PubMed record {pmid}"
         note = row.get("evidence_note") or _citation_inference(
             pmid, recommendation, safety_flags, pubmed_hits
         )

@@ -1,4 +1,4 @@
-import { getPatientAssets, healthCheck } from "./api"
+import { getPatientAssets, healthCheck, loginPatient } from "./api"
 
 /** Demo provider accounts allowed to sign in. */
 const PROVIDER_IDS = new Set(["DR-001"])
@@ -25,7 +25,8 @@ async function patientExists(patientId: string): Promise<boolean> {
 
 export async function validateLogin(
   role: "provider" | "patient",
-  rawId: string
+  rawId: string,
+  password?: string
 ): Promise<LoginValidationResult> {
   const id = normalizeId(rawId)
   if (!id) {
@@ -52,19 +53,45 @@ export async function validateLogin(
   }
 
   try {
-    const exists = await patientExists(id)
+    const result = await loginPatient({
+      patient_id: id,
+      password: password ?? "",
+    })
+
+    if (result.error) {
+      if (result.error === "patient not found") {
+        return {
+          ok: false,
+          message:
+            "This patient ID is not on file. Create an account below or ask your provider for an ID.",
+        }
+      }
+      if (result.error === "invalid password") {
+        return {
+          ok: false,
+          message: "Incorrect password. Try again or create a new account.",
+        }
+      }
+      return { ok: false, message: result.error }
+    }
+
+    if (!result.ok) {
+      return { ok: false, message: "Sign in failed. Please try again." }
+    }
+
+    return { ok: true }
+  } catch {
+    const exists = await patientExists(id).catch(() => false)
     if (!exists) {
       return {
         ok: false,
         message:
-          "This patient ID is not on file. Ask your healthcare provider to create your record in GIRA, or use a demo ID such as PT-001 after running scripts/ensure_demo_patients.py.",
+          "This patient ID is not on file. Create an account below or use a demo ID such as PT-001 after seeding.",
       }
     }
-    return { ok: true }
-  } catch {
     return {
       ok: false,
-      message: "Could not verify your patient ID. Check that the API is running and try again.",
+      message: "Could not verify your credentials. Check that the API is running and try again.",
     }
   }
 }

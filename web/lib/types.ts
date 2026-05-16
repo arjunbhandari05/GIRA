@@ -50,6 +50,12 @@ export interface PatientIntake {
   }
   comorbidities: string[]
   familyHistory: string[]
+  visitNotes: {
+    chiefComplaint: string
+    painSymptoms: string
+    sleepEnergy: string
+    moodFeeling: string
+  }
   clinicianNotes: string
 }
 
@@ -86,11 +92,29 @@ export interface AgentBrief {
     drug?: string
     pmid?: string
     clinvar_significance?: string
+    cpic_recommendation?: string
+    cpic_classification?: string
+    cpic_guideline_url?: string
+  }>
+  cpic_recommendations?: Array<{
+    gene?: string
+    drug?: string
+    recommendation?: string
+    cpic_classification?: string
+    guideline_url?: string
+    patient_genotype?: string
+    inferred_phenotype?: string
   }>
   recommendation?: {
     switch_required?: boolean
     discontinue?: string | null
     start?: string | null
+    actions?: Array<{
+      discontinue?: string
+      start?: string
+      rationale?: string
+      pmids?: string[]
+    }>
     rationale?: string[]
     supporting_pmids?: string[]
   }

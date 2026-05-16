@@ -10,6 +10,7 @@ import aiohttp
 import certifi
 import requests
 
+from apis.ncbi_throttle import ncbi_wait
 from apis.ncbi_util import ncbi_params
 
 
@@ -123,6 +124,7 @@ def _pubmed_search_http(term: str, retmax: int = 4) -> tuple[list[str], dict[str
         )
     )
     try:
+        ncbi_wait()
         r = requests.get(search_url, timeout=35, verify=certifi.where())
         r.raise_for_status()
         search_payload = r.json()
@@ -147,6 +149,7 @@ def _pubmed_summaries_http(pmids: list[str]) -> dict[str, dict]:
         ncbi_params({"db": "pubmed", "id": ",".join(pmids), "retmode": "json"})
     )
     try:
+        ncbi_wait()
         r = requests.get(summary_url, timeout=35, verify=certifi.where())
         r.raise_for_status()
         summary_payload = r.json()
@@ -178,7 +181,7 @@ def fetch_pubmed_articles_for_pmids(pmids: list[str]) -> dict[str, Any]:
     clean = [str(p).strip() for p in pmids if p and str(p).strip()]
     if not clean:
         return {"articles": [], "_meta": {**meta, "status": "empty", "detail": "No PMIDs"}}
-    time.sleep(0.11)
+    ncbi_wait()
     by_id = _pubmed_summaries_http(clean[:20])
     articles = []
     for pmid in clean[:20]:
@@ -216,13 +219,14 @@ def fetch_pubmed(gene: str | None = None, drug: str | None = None, **_kwargs: An
     g = str(gene).strip()
     d = str(drug).strip()
     term = f"({g}[Title/Abstract]) AND ({d}[Title/Abstract])"
+    ncbi_wait()
     pmids, search_meta = _pubmed_search_http(term, retmax=4)
     meta["query"] = term
     if search_meta.get("status") != "ok":
         meta.update(search_meta)
         return {"articles": [], "_meta": meta}
 
-    time.sleep(0.11)
+    ncbi_wait()
     by_id = _pubmed_summaries_http(pmids)
     articles: list[dict[str, Any]] = []
     for pmid in pmids:

@@ -4,7 +4,6 @@ import asyncio
 import os
 import ssl
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import urlencode
 
@@ -12,6 +11,7 @@ import aiohttp
 import certifi
 import requests
 
+from apis.ncbi_throttle import ncbi_wait
 from apis.ncbi_util import ncbi_params
 
 
@@ -129,6 +129,7 @@ def _get_clinvar_http(rsid: str) -> dict:
         ncbi_params({"db": "clinvar", "term": f"{rs}[rs]", "retmode": "json"})
     )
     try:
+        ncbi_wait()
         r = requests.get(search_url, timeout=35, verify=certifi.where())
         if _rate_limited(r.status_code):
             return _rate_limited_result(rs)
@@ -148,7 +149,7 @@ def _get_clinvar_http(rsid: str) -> dict:
     if not uids:
         return _not_found(rs)
 
-    time.sleep(0.11)
+    ncbi_wait()
     uid = uids[0]
     summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
         ncbi_params({"db": "clinvar", "id": uid, "retmode": "json"})
@@ -196,19 +197,11 @@ def fetch_clinvar(rsids: list[str] | str | None = None, **_kwargs: Any) -> dict[
 
     out: list[dict] = []
     errors: list[str] = []
-    max_workers = min(4, max(1, len(rs_list)))
-
-    def _one(rs: str) -> dict:
-        return _get_clinvar_http(rs)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {pool.submit(_one, rs): rs for rs in rs_list}
-        for fut in as_completed(futures):
-            rs = futures[fut]
-            try:
-                out.append(fut.result())
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{rs}:{exc}")
+    for rs in rs_list:
+        try:
+            out.append(_get_clinvar_http(rs))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{rs}:{exc}")
 
     if errors:
         meta["status"] = "partial" if out else "error"

@@ -11,10 +11,11 @@ import {
   Database,
   ClipboardList,
   Loader2,
+  Droplet,
 } from "lucide-react"
 import { motion } from "framer-motion"
 import type { AgentBrief, LogLine, Patient, SafetyFlag } from "@/lib/types"
-import { getAgentBrief, getSafetyFlags, listPatients, streamAgentBrief } from "@/lib/api"
+import { getAgentBrief, getPatientAssets, getSafetyFlags, listPatients, streamAgentBrief } from "@/lib/api"
 import {
   genotypeForFlag,
   severityUi,
@@ -41,12 +42,16 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
   const [pipelineError, setPipelineError] = useState<string | null>(null)
   const [loadingCache, setLoadingCache] = useState(true)
   const pipelineStartRef = useRef<number>(0)
+  const stepQueueRef = useRef<TraceStep[]>([])
+  const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [consoleAnimate, setConsoleAnimate] = useState(false)
 
   const sourceCards = [
     { id: "genome", title: "Genome", subtitle: "SNP profile", icon: Dna, accentColor: "#5B3FD4" },
     { id: "whoop", title: "Wearables", subtitle: "WHOOP 30-day", icon: Heart, accentColor: "#1A9E6E" },
-    { id: "clinical", title: "Clinical APIs", subtitle: "ClinVar · PubMed", icon: Database, accentColor: "#5B3FD4" },
+    { id: "glucose", title: "CGM", subtitle: "Glucose 30-day", icon: Droplet, accentColor: "#1A9E6E" },
     { id: "intake", title: "Intake Form", subtitle: "Clinician chart", icon: ClipboardList, accentColor: "#B45309" },
+    { id: "clinical", title: "Clinical APIs", subtitle: "ClinVar · PubMed", icon: Database, accentColor: "#5B3FD4" },
   ]
 
   const loadContext = useCallback(async () => {
@@ -64,20 +69,21 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
     let cancelled = false
     ;(async () => {
       setLoadingCache(true)
+      setBrief(null)
+      setPipelineComplete(false)
+      setLogLines([])
       try {
         await loadContext()
-        const cached = await getAgentBrief(patient.id, { cacheOnly: true })
+        const assets = await getPatientAssets(patient.id)
         if (cancelled) return
-        if (cached && !cached.error && (cached.cached || cached.generated_at || cached.snp_summary)) {
-          setBrief(cached)
-          setPipelineComplete(true)
-          if (cached._trace?.length) {
-            setLogLines(traceToLogLines(cached._trace))
-            activateCardsFromTrace(cached._trace)
-          }
-        }
+        const ready: string[] = []
+        if (assets.genome) ready.push("genome")
+        if (assets.wearable) ready.push("whoop")
+        if (assets.glucose) ready.push("glucose")
+        if (assets.intake_file) ready.push("intake")
+        setActiveCards(ready)
       } catch {
-        /* no cache */
+        setActiveCards([])
       } finally {
         if (!cancelled) setLoadingCache(false)
       }
@@ -96,11 +102,13 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
         tool === "fetch_clinvar" ||
         tool === "fetch_pubmed" ||
         tool === "fetch_rxnorm" ||
-        tool === "fetch_trials"
+        tool === "fetch_trials" ||
+        tool === "fetch_cpic"
       ) {
         next.add("clinical")
       }
-      if (tool === "get_patient_intake" || tool === "fetch_glucose") next.add("intake")
+      if (tool === "fetch_glucose") next.add("glucose")
+      if (tool === "get_patient_intake") next.add("intake")
       return Array.from(next)
     })
   }
@@ -114,15 +122,22 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
       tools.has("fetch_clinvar") ||
       tools.has("fetch_pubmed") ||
       tools.has("fetch_rxnorm") ||
-      tools.has("fetch_trials")
+      tools.has("fetch_trials") ||
+      tools.has("fetch_cpic")
     ) {
       cards.push("clinical")
     }
-    if (tools.has("get_patient_intake") || tools.has("fetch_glucose")) cards.push("intake")
-    setActiveCards(cards.length ? cards : ["genome", "whoop", "clinical", "intake"])
+    if (tools.has("fetch_glucose")) cards.push("glucose")
+    if (tools.has("get_patient_intake")) cards.push("intake")
+    setActiveCards(cards)
   }
 
-  const appendTraceStep = (step: TraceStep) => {
+  const flushStepQueue = useCallback(() => {
+    if (stepQueueRef.current.length === 0) {
+      drainTimerRef.current = null
+      return
+    }
+    const step = stepQueueRef.current.shift()!
     const elapsed = (Date.now() - pipelineStartRef.current) / 1000
     setLogLines((prev) => {
       const next = [...prev, traceStepToLogLine(step, elapsed)]
@@ -136,13 +151,46 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
       return next
     })
     activateCardForTool(step.tool)
-  }
+    drainTimerRef.current = setTimeout(flushStepQueue, 420)
+  }, [])
+
+  const enqueueTraceStep = useCallback(
+    (step: TraceStep) => {
+      stepQueueRef.current.push(step)
+      if (!drainTimerRef.current) flushStepQueue()
+    },
+    [flushStepQueue]
+  )
+
+  const replayTraceSteps = useCallback((trace: TraceStep[]) => {
+    stepQueueRef.current = []
+    if (drainTimerRef.current) {
+      clearTimeout(drainTimerRef.current)
+      drainTimerRef.current = null
+    }
+    setLogLines([
+      {
+        timestamp: "00:00.0",
+        text: "Replaying agent steps…",
+        type: "info",
+      },
+    ])
+    setConsoleAnimate(true)
+    stepQueueRef.current = [...trace]
+    flushStepQueue()
+  }, [flushStepQueue])
 
   const runPipeline = async () => {
     setPipelineRunning(true)
     setPipelineComplete(false)
     setPipelineError(null)
+    setConsoleAnimate(true)
     pipelineStartRef.current = Date.now()
+    stepQueueRef.current = []
+    if (drainTimerRef.current) {
+      clearTimeout(drainTimerRef.current)
+      drainTimerRef.current = null
+    }
     setLogLines([{ timestamp: "00:00.0", text: "Loading PGx safety gates…", type: "info" }])
     setActiveCards([])
 
@@ -189,7 +237,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
           if (step.tool === "generate_brief" && step.status !== "partial") {
             sawGenerateBrief = true
           }
-          appendTraceStep(step)
+          enqueueTraceStep(step)
         },
         onComplete: (result) => {
           completed = true
@@ -198,18 +246,32 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
             return
           }
           setBrief(result)
-          const elapsed = (Date.now() - pipelineStartRef.current) / 1000
-          setLogLines((prev) => [
-            ...prev,
-            {
-              timestamp: traceStepToLogLine({ tool: "generate_brief" }, elapsed).timestamp,
-              text: "Brief ready for review",
-              type: "success",
-            },
-          ])
-          if (result._trace?.length) activateCardsFromTrace(result._trace)
-          else setActiveCards(["genome", "whoop", "clinical", "intake"])
-          setPipelineComplete(true)
+          const finish = () => {
+            const elapsed = (Date.now() - pipelineStartRef.current) / 1000
+            setLogLines((prev) => [
+              ...prev,
+              {
+                timestamp: traceStepToLogLine({ tool: "generate_brief" }, elapsed).timestamp,
+                text: "Brief ready for review",
+                type: "success",
+              },
+            ])
+            if (result._trace?.length) activateCardsFromTrace(result._trace)
+            setPipelineComplete(true)
+            setConsoleAnimate(false)
+          }
+          if (stepQueueRef.current.length > 0 || drainTimerRef.current) {
+            const waitDrain = () => {
+              if (stepQueueRef.current.length > 0 || drainTimerRef.current) {
+                setTimeout(waitDrain, 200)
+                return
+              }
+              finish()
+            }
+            waitDrain()
+          } else {
+            finish()
+          }
         },
         onError: (message) => {
           streamError = message
@@ -218,21 +280,12 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
 
       if (streamError) throw new Error(streamError)
 
-      if (!completed) {
-        const cached = await getAgentBrief(patient.id, { cacheOnly: true })
-        if (cached && !cached.error && (cached.snp_summary?.length || cached.generated_at)) {
-          setBrief(cached)
-          setPipelineComplete(true)
-          if (cached._trace?.length) activateCardsFromTrace(cached._trace)
-          completed = true
-        }
-      }
-
       if (!completed && sawGenerateBrief) {
         const result = await getAgentBrief(patient.id, { cacheOnly: true })
         if (result && !result.error && result.snp_summary) {
           setBrief(result)
           setPipelineComplete(true)
+          if (result._trace?.length) activateCardsFromTrace(result._trace)
           completed = true
         }
       }
@@ -242,7 +295,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
         if (result.error) throw new Error(String(result.error))
         setBrief(result)
         if (result._trace?.length) {
-          setLogLines(traceToLogLines(result._trace, pipelineStartRef.current))
+          replayTraceSteps(result._trace)
           activateCardsFromTrace(result._trace)
         }
         setPipelineComplete(true)
@@ -255,6 +308,12 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
       setPipelineRunning(false)
     }
   }
+
+  useEffect(() => {
+    return () => {
+      if (drainTimerRef.current) clearTimeout(drainTimerRef.current)
+    }
+  }, [])
 
   const displayFlags = brief?.safety_flags?.length
     ? brief.safety_flags.map((f) => ({
@@ -361,7 +420,8 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
             running={pipelineRunning}
             loading={loadingCache}
             emptyHint='Click "Run GIRA Agent" to start (usually 1–3 min)'
-            defaultOpen={pipelineRunning}
+            defaultOpen={pipelineRunning || pipelineComplete}
+            animateLatest={consoleAnimate}
           />
         </div>
 

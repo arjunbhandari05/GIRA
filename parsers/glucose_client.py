@@ -79,6 +79,27 @@ def _coerce_glucose_raw(raw: dict[str, Any]) -> dict[str, Any]:
                 }
             )
 
+    if not daily and isinstance(raw.get("daily"), list):
+        for i, row in enumerate(raw["daily"]):
+            if not isinstance(row, dict):
+                continue
+            avg = row.get("avg_glucose") if row.get("avg_glucose") is not None else row.get("avg_mgdl")
+            if avg is None:
+                continue
+            try:
+                avg_f = float(avg)
+            except (TypeError, ValueError):
+                continue
+            daily.append(
+                {
+                    "day": i + 1,
+                    "avg_mgdl": avg_f,
+                    "hypoglycemic_events": int(
+                        row.get("hypoglycemic_events") or row.get("hypo_events") or 0
+                    ),
+                }
+            )
+
     summary = dict(raw.get("summary") or {})
     if not summary:
         tir = raw.get("time_in_range_pct")
@@ -132,9 +153,10 @@ def _parse(raw: dict[str, Any]) -> dict[str, Any]:
     summary = raw.get("summary", {})
     daily = raw.get("daily_summaries", []) or []
 
-    if len(daily) >= 14:
-        first_week = daily[:7]
-        last_week = daily[-7:]
+    if len(daily) >= 4:
+        half = max(1, len(daily) // 2)
+        first_week = daily[:half]
+        last_week = daily[-half:]
         first_avg = sum(d["avg_mgdl"] for d in first_week) / len(first_week)
         last_avg = sum(d["avg_mgdl"] for d in last_week) / len(last_week)
         delta = last_avg - first_avg

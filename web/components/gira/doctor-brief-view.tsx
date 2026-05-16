@@ -144,6 +144,35 @@ export default function DoctorBriefView({
         )}
       </section>
 
+      {(brief.cpic_recommendations?.length ?? 0) > 0 && (
+        <section className="border border-[#E8E6F0] rounded-lg bg-white overflow-hidden">
+          <p className="px-5 py-3 text-[11px] font-semibold uppercase text-[#9895A8] border-b border-[#E8E6F0]">
+            CPIC prescribing (live)
+          </p>
+          <motion.div className="divide-y divide-[#E8E6F0]">
+            {brief.cpic_recommendations!.map((row, i) => (
+              <motion.div key={`${row.gene}-${row.drug}-${i}`} className="px-5 py-4">
+                <p className="font-mono text-[13px] font-semibold text-[#0D0B14]">
+                  {row.gene} · {row.drug}
+                  {row.inferred_phenotype ? ` · ${row.inferred_phenotype}` : ""}
+                </p>
+                <p className="text-[13px] text-[#6B6778] mt-2">{row.recommendation}</p>
+                {row.guideline_url && (
+                  <a
+                    href={row.guideline_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[12px] text-[#5B3FD4] mt-2 inline-flex items-center gap-1"
+                  >
+                    CPIC guideline <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </motion.div>
+            ))}
+          </motion.div>
+        </section>
+      )}
+
       {snpRows.length > 0 && (
         <section className="border border-[#E8E6F0] rounded-lg bg-white overflow-hidden">
           <p className="px-5 py-3 text-[11px] font-semibold uppercase text-[#9895A8] border-b border-[#E8E6F0]">
@@ -170,10 +199,56 @@ export default function DoctorBriefView({
                   </button>
                   {open && (
                     <div className="px-5 pb-4 text-[13px] text-[#6B6778] space-y-2">
-                      <p>{snp.finding}</p>
+                      <p>{snp.finding || (snp as { description?: string }).description || "No variant interpretation on file."}</p>
+                      {(snp as { category_label?: string }).category_label && (
+                        <p>
+                          Panel:{" "}
+                          <span className="font-medium">
+                            {(snp as { category_label?: string }).category_label}
+                          </span>
+                        </p>
+                      )}
+                      {(snp as { population_label?: string }).population_label && (
+                        <p className="text-[12px] text-[#9895A8]">
+                          {(snp as { population_label?: string }).population_label}
+                        </p>
+                      )}
                       <p>
-                        Evidence: <span className="font-medium">{snp.evidence_level || "—"}</span>
+                        PharmGKB evidence:{" "}
+                        <span className="font-medium">{snp.evidence_level || "—"}</span>
                       </p>
+                      {(snp as { cpic_recommendation?: string }).cpic_recommendation && (
+                        <p className="text-[#0D0B14]">
+                          CPIC (
+                          {(snp as { cpic_classification?: string }).cpic_classification || "guideline"}
+                          ):{" "}
+                          <span className="font-medium">
+                            {(snp as { cpic_recommendation?: string }).cpic_recommendation}
+                          </span>
+                          {(snp as { cpic_guideline_url?: string }).cpic_guideline_url && (
+                            <a
+                              href={(snp as { cpic_guideline_url?: string }).cpic_guideline_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-2 text-[#5B3FD4] inline-flex items-center gap-1"
+                            >
+                              Guideline <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                        </p>
+                      )}
+                      {(snp as { clinvar_significance?: string }).clinvar_significance && (
+                        <p>
+                          ClinVar:{" "}
+                          <span className="font-medium">
+                            {(snp as { clinvar_significance?: string }).clinvar_significance}
+                          </span>
+                          {(snp as { clinvar_condition?: string }).clinvar_condition &&
+                          (snp as { clinvar_condition?: string }).clinvar_condition !== "n/a"
+                            ? ` — ${(snp as { clinvar_condition?: string }).clinvar_condition}`
+                            : ""}
+                        </p>
+                      )}
                       {snp.rsid && (
                         <a
                           href={`https://www.ncbi.nlm.nih.gov/clinvar/?term=${snp.rsid}`}
@@ -196,27 +271,38 @@ export default function DoctorBriefView({
       <section>
         <p className="text-[11px] font-semibold uppercase text-[#9895A8] mb-3">Recommendations</p>
         <div className="grid md:grid-cols-3 gap-3">
-          {rec?.discontinue && (
+          {!rec?.actions?.length && rec?.discontinue && (
             <div className="border-l-[3px] border-l-[#C0392B] border border-[#E8E6F0] rounded-lg p-4 bg-white">
               <p className="text-[11px] font-bold uppercase text-[#C0392B]">Discontinue</p>
               <p className="text-[16px] font-semibold mt-1">{rec.discontinue}</p>
               <p className="text-[12px] text-[#6B6778] mt-2">{rec.rationale?.[0]}</p>
             </div>
           )}
-          {rec?.start && (
+          {!rec?.actions?.length && rec?.start && (
             <div className="border-l-[3px] border-l-[#1A9E6E] border border-[#E8E6F0] rounded-lg p-4 bg-white">
               <p className="text-[11px] font-bold uppercase text-[#1A9E6E]">Start</p>
               <p className="text-[16px] font-semibold mt-1">{rec.start}</p>
-              <p className="text-[12px] text-[#6B6778] mt-2">{rec.rationale?.[1] || rec.rationale?.[0]}</p>
+              <p className="text-[12px] text-[#6B6778] mt-2">{rec.rationale?.[0]}</p>
             </div>
           )}
-          {(rec?.rationale || []).slice(0, 2).map((r, i) => (
+          {(rec?.actions?.length ? rec.actions : []).map((action, i) => (
             <div
-              key={i}
-              className="border-l-[3px] border-l-[#5B3FD4] border border-[#E8E6F0] rounded-lg p-4 bg-white"
+              key={`action-${i}`}
+              className="border-l-[3px] border-l-[#5B3FD4] border border-[#E8E6F0] rounded-lg p-4 bg-white space-y-2"
             >
-              <p className="text-[11px] font-bold uppercase text-[#5B3FD4]">Consider</p>
-              <p className="text-[13px] text-[#6B6778] mt-2">{r}</p>
+              {action.discontinue && (
+                <div>
+                  <p className="text-[11px] font-bold uppercase text-[#C0392B]">Discontinue</p>
+                  <p className="text-[15px] font-semibold text-[#0D0B14]">{action.discontinue}</p>
+                </div>
+              )}
+              {action.start && (
+                <div>
+                  <p className="text-[11px] font-bold uppercase text-[#1A9E6E]">Start</p>
+                  <p className="text-[15px] font-semibold text-[#0D0B14]">{action.start}</p>
+                </div>
+              )}
+              <p className="text-[12px] text-[#6B6778] leading-relaxed">{action.rationale}</p>
             </div>
           ))}
         </div>
@@ -227,17 +313,17 @@ export default function DoctorBriefView({
           <p className="text-[11px] font-semibold uppercase text-[#9895A8]">WHOOP + glucose (30-day)</p>
           <div className="flex flex-wrap gap-2">
             {[
-              { label: "HRV", val: (wearable as { hrv_avg?: number })?.hrv_avg },
-              { label: "RHR", val: (wearable as { rhr_avg?: number })?.rhr_avg },
-              { label: "Recovery", val: (wearable as { recovery_avg?: number })?.recovery_avg },
-              { label: "TIR", val: (glucose as { time_in_range_pct?: number })?.time_in_range_pct },
-              { label: "GMI", val: (glucose as { gmi?: number })?.gmi },
+              { label: "HRV", val: (wearable as { hrv_ms_avg?: number })?.hrv_ms_avg, unit: " ms" },
+              { label: "RHR", val: (wearable as { rhr_avg?: number })?.rhr_avg, unit: " bpm" },
+              { label: "Recovery", val: (wearable as { recovery_avg?: number })?.recovery_avg, unit: "/100" },
+              { label: "TIR", val: (glucose as { time_in_range_pct?: number })?.time_in_range_pct, unit: "%" },
+              { label: "GMI", val: (glucose as { gmi_pct?: number })?.gmi_pct, unit: "%" },
             ].map((chip) => (
               <span
                 key={chip.label}
                 className="px-3 py-1.5 bg-[#F9F8FC] border border-[#E8E6F0] rounded-full text-[12px] font-mono"
               >
-                {chip.label}: {chip.val != null ? chip.val : "—"}
+                {chip.label}: {chip.val != null ? `${chip.val}${(chip as { unit?: string }).unit || ""}` : "—"}
               </span>
             ))}
           </div>
@@ -297,6 +383,11 @@ export default function DoctorBriefView({
                     {" "}
                     — {(c as { gene?: string }).gene} + {(c as { drug?: string }).drug}
                   </span>
+                )}
+                {(c as { inference?: string }).inference && (
+                  <p className="text-[12px] text-[#6B6778] mt-1 pl-0">
+                    {(c as { inference?: string }).inference}
+                  </p>
                 )}
               </li>
             ))}

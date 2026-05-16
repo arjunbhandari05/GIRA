@@ -62,7 +62,7 @@ def _infer_tool_status(tool: str, result: Any) -> tuple[str, str, str | None, bo
     if isinstance(result, dict) and result.get("error"):
         return ("tool", "error", str(result["error"])[:500], False)
 
-    if tool in ("fetch_trials", "fetch_pubmed", "fetch_clinvar"):
+    if tool in ("fetch_trials", "fetch_pubmed", "fetch_clinvar", "fetch_cpic"):
         if not isinstance(result, dict):
             return ("unknown", "ok", None, False)
         meta = result.get("_meta") or {}
@@ -617,6 +617,9 @@ def _enrich_args(
                     if isinstance(snp, dict) and snp.get("gene")
                 }
             )
+    elif name == "fetch_cpic":
+        args.setdefault("current_meds", current_meds)
+        args.setdefault("snp_profile", snp_profile)
     elif name == "fetch_rxnorm":
         args.setdefault("current_meds", current_meds)
         args.setdefault("snp_profile", snp_profile)
@@ -646,6 +649,7 @@ DETERMINISTIC_PLAN = [
     "get_snp_profile",
     "get_patient_intake",
     "fetch_clinvar",
+    "fetch_cpic",
     "fetch_whoop",
     "fetch_glucose",
     "fetch_rxnorm",
@@ -657,12 +661,37 @@ DETERMINISTIC_PLAN = [
 
 PUBMED_PAIRS = [
     ("TCF7L2", "metformin"),
-    ("TCF7L2", "semaglutide"),
+    ("SLC22A1", "metformin"),
     ("SLCO1B1", "atorvastatin"),
     ("CYP2C19", "clopidogrel"),
+    ("VKORC1", "warfarin"),
+    ("FTO", "semaglutide"),
 ]
-PRIMARY_GENES = ["TCF7L2", "SLC22A1", "SLCO1B1", "CYP2C19", "FTO"]
-PRIMARY_RSIDS = ["rs7903146", "rs622342", "rs4149056", "rs4244285", "rs9939609"]
+PRIMARY_GENES = [
+    "TCF7L2",
+    "SLC22A1",
+    "SLCO1B1",
+    "CYP2C19",
+    "CYP2C9",
+    "VKORC1",
+    "FTO",
+]
+# Safety + metformin + key T2D loci first; full panel used when profile is loaded
+PRIMARY_RSIDS = [
+    "rs4149056",
+    "rs4244285",
+    "rs4986893",
+    "rs9923231",
+    "rs1799853",
+    "rs1057910",
+    "rs622342",
+    "rs7903146",
+    "rs2289669",
+    "rs11212617",
+    "rs9939609",
+    "rs429358",
+    "rs7412",
+]
 
 
 async def run_parallel_tool_plan(
@@ -720,12 +749,15 @@ async def run_parallel_tool_plan(
         findings[name] = result
 
     snp_profile = findings.get("get_snp_profile") or {}
-    rsids = PRIMARY_RSIDS or list(snp_profile.keys())
+    panel_rsids = list(snp_profile.keys()) if snp_profile else []
+    priority = [r for r in PRIMARY_RSIDS if r in panel_rsids or not panel_rsids]
+    rsids = priority + [r for r in panel_rsids if r not in priority]
     zip_code = patient.get("zip_code") or patient.get("zip", "")
 
-    # Phase 2 — evidence + wearables (all parallel; log lines appear as each completes)
+    # Phase 2 — evidence + wearables (NCBI tools run sequentially inside fetch_*)
     phase2_specs: list[tuple[str, dict[str, Any]]] = [
         ("fetch_clinvar", {"rsids": rsids}),
+        ("fetch_cpic", {}),
         ("fetch_whoop", {"patient_id": patient_id}),
         ("fetch_glucose", {"patient_id": patient_id}),
         ("fetch_rxnorm", {}),
@@ -1000,11 +1032,25 @@ def _summarize_result(name: str, result: Any) -> dict[str, Any]:
     if name == "get_patient_intake" and isinstance(result, dict):
         intake = result.get("intake") or {}
         meds = intake.get("medications") or []
+        visit = intake.get("visitNotes") or {}
+        has_subjective = any(
+            str(visit.get(k) or "").strip()
+            for k in ("chiefComplaint", "painSymptoms", "sleepEnergy", "moodFeeling")
+        )
         return {
             "has_intake": bool(result.get("has_clinical_data")),
+            "has_subjective": has_subjective,
             "med_count": len(meds),
             "goals": (intake.get("goals") or [])[:4],
             "side_effects": (intake.get("sideEffects") or [])[:4],
+        }
+
+    if name == "fetch_cpic" and isinstance(result, dict):
+        recs = result.get("recommendations") or []
+        return {
+            "recommendations": len(recs),
+            "hits": len(recs),
+            "drugs": [r.get("drug") for r in recs if isinstance(r, dict) and r.get("drug")][:3],
         }
 
     if name == "fetch_glucose" and isinstance(result, dict):

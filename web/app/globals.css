@@ -273,3 +273,31 @@
 .live-metric-pulse {
   animation: live-pulse 2.2s ease-in-out infinite;
 }
+
+@keyframes live-dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+.live-dot {
+  animation: live-dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes metric-tick {
+  0% {
+    opacity: 0.55;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.live-metric-tick {
+  animation: metric-tick 0.4s ease-out;
+}
+
+.live-metric-value {
+  font-variant-numeric: tabular-nums;
+}

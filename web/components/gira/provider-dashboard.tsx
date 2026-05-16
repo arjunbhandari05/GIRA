@@ -222,8 +222,8 @@ export default function ProviderDashboard({
         <div className="space-y-3">
           {!loading && filtered.length === 0 && (
             <p className="text-center text-[13px] text-[#9895A8] py-12">
-              No patients yet. Click <strong>New patient</strong> to add someone, then upload their data on the Setup
-              tab.
+              No patients yet. Click <strong>New patient</strong> to add someone, then have them complete Setup in the
+              patient portal.
             </p>
           )}
           {filtered.map((patient, index) => {
@@ -269,7 +269,7 @@ export default function ProviderDashboard({
         </div>
 
         <p className="text-[11px] text-[#C4C1D4] text-center mt-12">
-          GIRA · All patients in the roster · upload data per patient on Setup
+          GIRA · All patients in the roster · patients upload data on their Setup page
         </p>
       </main>
     </div>
