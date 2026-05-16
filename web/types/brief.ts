@@ -52,6 +52,7 @@ export interface TrialMatch {
   phase: string
   status: string
   location: string
+  url?: string
   tags: string[]
 }
 

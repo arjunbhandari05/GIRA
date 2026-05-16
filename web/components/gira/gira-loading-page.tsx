@@ -225,7 +225,7 @@ export default function GiraLoadingPage({
             onClick={onComplete}
             className="px-5 py-2 bg-gira-purple text-white text-sm font-medium rounded-lg hover:bg-gira-purple-hover transition-colors"
           >
-            View clinician brief
+            View Medical Brief
           </motion.button>
         )}
       </footer>

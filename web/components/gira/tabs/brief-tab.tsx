@@ -39,7 +39,7 @@ import type { AgentLogEntry, TraceStep } from "@/lib/types"
 interface BriefTabProps {
   patient: Patient
   onNavigateIntake?: () => void
-  onBriefComplete?: () => void
+  onBriefComplete?: (brief?: AgentBrief) => void
 }
 
 export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }: BriefTabProps) {
@@ -59,7 +59,6 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
   const [showAgentOverlay, setShowAgentOverlay] = useState(false)
   const [agentLogEntries, setAgentLogEntries] = useState<AgentLogEntry[]>([])
   const streamAbortRef = useRef<AbortController | null>(null)
-  const autoNavigatedRef = useRef(false)
   const [portalMounted, setPortalMounted] = useState(false)
 
   useEffect(() => {
@@ -227,35 +226,13 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
   }, [flushStepQueue])
 
   const handleLoadingComplete = useCallback(() => {
-    if (autoNavigatedRef.current) return
-    autoNavigatedRef.current = true
     setShowAgentOverlay(false)
-    onBriefComplete?.()
-  }, [onBriefComplete])
-
-  useEffect(() => {
-    if (!showAgentOverlay || pipelineRunning || !pipelineComplete || !brief || brief.error) {
-      return
-    }
-    if (autoNavigatedRef.current) return
-
-    const timer = setTimeout(() => {
-      handleLoadingComplete()
-    }, 1200)
-
-    return () => clearTimeout(timer)
-  }, [
-    showAgentOverlay,
-    pipelineRunning,
-    pipelineComplete,
-    brief,
-    handleLoadingComplete,
-  ])
+    onBriefComplete?.(brief ?? undefined)
+  }, [onBriefComplete, brief])
 
   const runPipeline = async () => {
     streamAbortRef.current?.abort()
     streamAbortRef.current = new AbortController()
-    autoNavigatedRef.current = false
     setShowAgentOverlay(true)
     setAgentLogEntries([])
     setPipelineRunning(true)
@@ -544,7 +521,7 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
           <p className="text-[14px] text-[#0D0B14] font-medium">Brief ready — open the Clinician brief tab to review.</p>
           <button
             type="button"
-            onClick={onBriefComplete}
+            onClick={() => onBriefComplete?.(brief ?? undefined)}
             className="w-full bg-[#5B3FD4] text-white rounded-lg py-3 text-[14px] font-medium hover:bg-[#4A32B0] transition-colors"
           >
             View clinician brief

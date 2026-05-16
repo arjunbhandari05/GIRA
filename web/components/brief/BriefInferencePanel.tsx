@@ -21,6 +21,7 @@ function parseHba1c(hba1c?: string): number | undefined {
 export interface BriefInferencePanelProps {
   patientId: string
   audience: "clinician" | "patient"
+  initialBrief?: ApiBrief | null
   embedded?: boolean
   initialView?: "clinician" | "patient"
   showViewToggle?: boolean
@@ -32,6 +33,7 @@ export interface BriefInferencePanelProps {
 export default function BriefInferencePanel({
   patientId,
   audience,
+  initialBrief = null,
   embedded = false,
   initialView,
   showViewToggle,
@@ -80,6 +82,9 @@ export default function BriefInferencePanel({
   }, [patientId])
 
   const fetchBrief = useCallback(async () => {
+    if (initialBrief) {
+      return initialBrief
+    }
     const snpProfile = await loadPatientMeta()
     const data = await getAgentBrief(patientId, { cacheOnly: true })
     if (data.error === "not_cached") {
@@ -90,7 +95,7 @@ export default function BriefInferencePanel({
     }
     await hydrate(data, snpProfile)
     return data
-  }, [patientId, hydrate, loadPatientMeta])
+  }, [patientId, hydrate, loadPatientMeta, initialBrief])
 
   useEffect(() => {
     if (!mayLoad) {
@@ -106,6 +111,11 @@ export default function BriefInferencePanel({
       setLoading(true)
       setError(null)
       try {
+        if (initialBrief) {
+          const snpProfile = await loadPatientMeta()
+          if (!cancelled) await hydrate(initialBrief, snpProfile)
+          return
+        }
         const hit = await fetchBrief()
         if (cancelled) return
         if (!hit) {

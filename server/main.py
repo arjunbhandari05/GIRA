@@ -304,6 +304,8 @@ async def _run_agent_brief(
 ) -> dict:
     """Single brief pipeline: GIRA tool loop → assemble_brief (+ PGx synthesis)."""
     if cache_only:
+        if not _brief_cache_reads_enabled():
+            return {"error": "not_cached", "cached": False}
         cached = _read_cached_agent_brief(patient_id)
         if cached:
             return cached
@@ -318,7 +320,7 @@ async def _run_agent_brief(
     if not patient:
         return {"error": f"patient {patient_id} not found"}
 
-    agent_mode = os.getenv("AGENT_MODE", "llm").strip().lower()
+    agent_mode = os.getenv("AGENT_MODE", "parallel").strip().lower()
     if agent_mode == "llm":
         brief = await run_with_tools(
             patient_id, patient, TOOL_DEFINITIONS, on_trace_step=on_trace_step
@@ -327,10 +329,13 @@ async def _run_agent_brief(
         brief = await run_parallel_tool_plan(
             patient_id, patient, TOOL_DEFINITIONS, on_trace_step=on_trace_step
         )
-    if isinstance(brief, dict):
+    if isinstance(brief, dict) and _brief_cache_reads_enabled():
         brief.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
         brief["cached"] = False
         _write_cached_agent_brief(patient_id, brief)
+    elif isinstance(brief, dict):
+        brief.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
+        brief["cached"] = False
     return brief
 
 
@@ -442,7 +447,7 @@ async def stream_agent_brief(
             yield _sse_payload({"event": "step", "step": step})
         yield _sse_payload({"event": "complete", "brief": cached})
 
-    if not refresh:
+    if not refresh and _brief_cache_reads_enabled():
         cached = _read_cached_agent_brief(patient_id)
         if cached:
             return StreamingResponse(
@@ -480,14 +485,23 @@ async def stream_agent_brief(
             pass
 
     async def run_agent():
+        timeout_sec = float(os.getenv("AGENT_TIMEOUT_SEC", "60"))
         try:
-            brief = await _run_agent_brief(
-                patient_id, refresh=True, on_trace_step=on_trace_step
+            brief = await asyncio.wait_for(
+                _run_agent_brief(
+                    patient_id, refresh=True, on_trace_step=on_trace_step
+                ),
+                timeout=timeout_sec,
             )
             if isinstance(brief, dict) and brief.get("error"):
                 await queue.put({"event": "error", "message": brief["error"]})
             else:
                 await queue.put({"event": "complete", "brief": brief})
+        except asyncio.TimeoutError:
+            await queue.put({
+                "event": "error",
+                "message": f"Brief generation exceeded the {timeout_sec:.0f} second demo timeout.",
+            })
         except Exception as exc:
             await queue.put({"event": "error", "message": str(exc)})
         finally:

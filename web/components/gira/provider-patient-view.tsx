@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { ArrowLeft, FileText, ClipboardList, Activity, Dna, Sparkles } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
-import type { Patient } from "@/lib/types"
+import type { AgentBrief, Patient } from "@/lib/types"
 import BriefInferencePanel from "@/components/brief/BriefInferencePanel"
 import BriefTab from "./tabs/brief-tab"
 import IntakeFormTab from "./tabs/intake-form-tab"
@@ -38,6 +38,7 @@ export default function ProviderPatientView({
   const [activeTab, setActiveTab] = useState<Tab>(initialTab === "brief" ? "brief" : initialTab)
   const [dataRefreshKey, setDataRefreshKey] = useState(0)
   const [hasCachedBrief, setHasCachedBrief] = useState(false)
+  const [generatedBrief, setGeneratedBrief] = useState<AgentBrief | null>(null)
   const [resultsKey, setResultsKey] = useState(0)
 
   const bumpDataRefresh = () => setDataRefreshKey((k) => k + 1)
@@ -52,10 +53,12 @@ export default function ProviderPatientView({
     [hasCachedBrief]
   )
 
-  const handleBriefComplete = () => {
-    setHasCachedBrief(true)
+  const handleBriefComplete = (brief?: AgentBrief) => {
+    const nextBrief = brief ?? generatedBrief
+    if (brief) setGeneratedBrief(brief)
+    setHasCachedBrief(Boolean(nextBrief))
     setResultsKey((k) => k + 1)
-    setActiveTab("results")
+    if (nextBrief) setActiveTab("results")
   }
 
   return (
@@ -135,6 +138,7 @@ export default function ProviderPatientView({
                 key={resultsKey}
                 patientId={patient.id}
                 audience="clinician"
+                initialBrief={generatedBrief}
                 embedded
                 initialView="clinician"
                 showViewToggle

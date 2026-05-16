@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge"
+import { ExternalLink } from "lucide-react"
 import type { TrialMatch } from "@/types/brief"
 
 interface TrialListProps {
@@ -18,9 +19,16 @@ export default function TrialList({ trials }: TrialListProps) {
           <article key={t.nct_id} className="rounded-md border bg-card p-3">
             <p className="font-mono text-xs text-muted-foreground">{t.nct_id}</p>
             <p className="mt-1 font-medium">{t.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t.phase} · {t.status} · {t.location}
-            </p>
+            {(t.url || t.nct_id) && (
+              <a
+                href={t.url || `https://clinicaltrials.gov/study/${t.nct_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-blue-700 hover:underline"
+              >
+                View on ClinicalTrials.gov <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
             {t.tags.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1">
                 {t.tags.map((tag) => (

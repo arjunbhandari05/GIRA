@@ -120,6 +120,7 @@ export function mapTrialMatches(api: ApiBrief): TrialMatch[] {
     phase: t.phase || "N/A",
     status: "Recruiting",
     location: t.location || "",
+    url: t.url || (t.nct_id ? `https://clinicaltrials.gov/study/${t.nct_id}` : undefined),
     tags: t.match_genes || [],
   }))
 }

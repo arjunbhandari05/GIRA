@@ -5,6 +5,10 @@ import { formatDurationMs } from "@/lib/format-duration"
 
 const TOOL_DISPLAY: Record<string, string> = {
   nemotron_turn: "Nemotron (planning)",
+  get_snp_profile: "SNP profile (local)",
+  get_patient_intake: "Patient intake (local)",
+  fetch_glucose: "CGM glucose",
+  fetch_whoop: "WHOOP wearable",
   fetch_clinvar: "ClinVar",
   fetch_pubmed: "PubMed",
   fetch_trials: "Trials",

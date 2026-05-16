@@ -361,9 +361,6 @@ export default function DoctorBriefView({
             >
               <p className="font-mono text-[12px] text-[#5B3FD4]">{t.nct_id}</p>
               <p className="text-[15px] font-semibold mt-1">{t.title}</p>
-              <p className="text-[13px] text-[#6B6778] mt-1">
-                {[t.location, t.phase, "Recruiting"].filter(Boolean).join(" · ")}
-              </p>
               <a
                 href={t.url || `https://clinicaltrials.gov/study/${t.nct_id}`}
                 target="_blank"

@@ -912,19 +912,49 @@ async def run_parallel_tool_plan(
         },
     }
     loop = asyncio.get_running_loop()
+    started_at = time.perf_counter()
+    deadline_sec = float(os.getenv("AGENT_TIMEOUT_SEC", "60"))
+    tool_timeout_sec = float(os.getenv("AGENT_TOOL_TIMEOUT_SEC", "15"))
 
-    async def _run_tool(tool_name: str, args: dict[str, Any]) -> tuple[str, dict[str, Any], Any]:
-        enriched = _enrich_args(tool_name, dict(args), findings, patient)
-        result = await loop.run_in_executor(
-            None, _execute_tool, tool_name, enriched, tools_by_name
-        )
-        return tool_name, enriched, result
+    def _remaining(default: float) -> float:
+        left = deadline_sec - (time.perf_counter() - started_at)
+        return max(0.1, min(default, left))
+
+    def _timeout_result(tool_name: str, timeout_sec: float) -> Any:
+        meta = {
+            "source": tool_name,
+            "status": "partial",
+            "detail": f"{tool_name} exceeded {timeout_sec:.0f}s demo timeout; continuing with available data.",
+        }
+        if tool_name == "get_snp_profile":
+            return {"_meta": meta}
+        if tool_name == "get_patient_intake":
+            return {"patient_id": patient_id, "intake": {}, "_meta": meta}
+        if tool_name == "fetch_clinvar":
+            return {"variants": [], "_meta": meta}
+        if tool_name == "fetch_pubmed":
+            return {"articles": [], "_meta": meta}
+        if tool_name == "fetch_trials":
+            return {"trials": [], "_meta": meta}
+        if tool_name == "check_safety_flags":
+            return []
+        return {"error": meta["detail"], "_meta": meta}
 
     async def _run_traced(
         tool_name: str, args: dict[str, Any]
     ) -> tuple[str, dict[str, Any], Any]:
         t0 = time.perf_counter()
-        tool_name, enriched, result = await _run_tool(tool_name, args)
+        enriched = _enrich_args(tool_name, dict(args), findings, patient)
+        timeout_sec = _remaining(tool_timeout_sec)
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None, _execute_tool, tool_name, enriched, tools_by_name
+                ),
+                timeout=timeout_sec,
+            )
+        except asyncio.TimeoutError:
+            result = _timeout_result(tool_name, timeout_sec)
         tool_ms = int((time.perf_counter() - t0) * 1000)
         rec = _trace_step_record(
             tool_name,
@@ -934,6 +964,8 @@ async def run_parallel_tool_plan(
             duration_ms=tool_ms,
         )
         rec["parallel"] = True
+        if isinstance(result, dict) and (result.get("_meta") or {}).get("status") == "partial":
+            rec["status"] = "partial"
         _emit_trace_step(trace, rec, on_trace_step)
         _log(f"[nemotron] parallel {tool_name} done in {tool_ms}ms")
         return tool_name, enriched, result
@@ -1040,7 +1072,7 @@ async def run_parallel_tool_plan(
     try:
         _name, _args, brief = await asyncio.wait_for(
             _run_traced("generate_brief", {"skip_pgx_synthesis": skip_syn}),
-            timeout=float(os.getenv("BRIEF_ASSEMBLY_TIMEOUT_SEC", "45")),
+            timeout=_remaining(float(os.getenv("BRIEF_ASSEMBLY_TIMEOUT_SEC", "15"))),
         )
     except asyncio.TimeoutError:
         _log("[nemotron] generate_brief timed out — returning partial brief")
