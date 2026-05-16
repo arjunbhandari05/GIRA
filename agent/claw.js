@@ -1,84 +1,123 @@
 /**
  * agent/claw.js
  *
- * OpenClaw agent loop:  think → act → reason → check → remember → deliver
+ * OpenClaw agentic loop. Hands off to the Python tool-calling driver in
+ * reasoning.nemotron.run_with_tools — which is where the real reasoning
+ * lives — then persists the brief and prints it for terminal verification.
  *
- * The agent itself does no clinical reasoning. It orchestrates tool calls,
- * hands the bundled evidence to Nemotron, then runs the deterministic
- * post-inference safety check before persisting + delivering the brief.
+ * Tools are defined twice on purpose:
+ *   - agent/tools.py (Python, canonical, real fn callbacks)
+ *   - agent/tools.js (JS mirror, descriptive only)
  *
- * Tools live behind the FastAPI server (server/main.py) — this file POSTs
- * to local endpoints so Python/JS stay loosely coupled.
- *
- * Owner: <unassigned>
+ * The JS side is for surface-area introspection. Execution is Python.
  */
 
-import axios from 'axios';
-import 'dotenv/config';
+import { execFileSync, execSync } from 'child_process'
+import 'dotenv/config'
 
-import memory from './memory.js';
-import policy from './policy.json' with { type: 'json' };
+const FORCE_RUN = process.env.FORCE_RUN === 'true'
 
-const API = process.env.API_BASE || 'http://localhost:8000';
+function resolvePython() {
+  if (process.env.PYTHON_BIN) return process.env.PYTHON_BIN
+  for (const candidate of ['python3', 'python']) {
+    try {
+      execSync(`${candidate} -c "import dotenv, aiohttp, requests"`, {
+        stdio: 'ignore',
+      })
+      return candidate
+    } catch {
+      /* try the next one */
+    }
+  }
+  return 'python3'
+}
+
+const PYTHON = resolvePython()
 
 function isAppointmentToday(patient) {
-  if (!patient?.next_appointment_iso) return false;
-  const target = new Date(patient.next_appointment_iso);
-  const now = new Date();
-  return target.toDateString() === now.toDateString();
+  if (!patient?.appointment_date) return false
+  const today = new Date().toISOString().split('T')[0]
+  return patient.appointment_date === today
 }
 
-/**
- * Run the full pipeline for one patient.
- */
+function pythonReadPatient(patientId) {
+  const script = `
+import json, sys
+sys.path.insert(0, '.')
+from agent.memory import read
+patient = read(${JSON.stringify(patientId)})
+sys.stdout.write(json.dumps(patient, default=str))
+`
+  const out = execFileSync(PYTHON, ['-c', script], {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  })
+  return JSON.parse(out)
+}
+
+function pythonRunAgent(patientId) {
+  const script = `
+import asyncio, json, sys
+sys.path.insert(0, '.')
+from agent.memory import read, write_brief
+from agent.tools import TOOL_DEFINITIONS
+from reasoning.nemotron import run_with_tools
+
+patient = read(${JSON.stringify(patientId)})
+if not patient:
+    sys.stdout.write(json.dumps({"error": "patient not found"}))
+    raise SystemExit(0)
+
+brief = asyncio.run(run_with_tools(${JSON.stringify(patientId)}, patient, TOOL_DEFINITIONS))
+write_brief(${JSON.stringify(patientId)}, brief)
+sys.stdout.write(json.dumps(brief, default=str))
+`
+  const out = execFileSync(PYTHON, ['-c', script], {
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  })
+  return JSON.parse(out)
+}
+
 export async function run(patientId) {
-  const patient = await memory.read(patientId);
-  if (!isAppointmentToday(patient)) {
-    return { skipped: true, reason: 'no appointment today' };
+  const patient = pythonReadPatient(patientId)
+  if (!patient) {
+    console.error(`[claw] patient ${patientId} not found`)
+    return null
   }
 
-  // THINK + ACT — fan out all 7 tools in parallel.
-  const [snp, whoop, clinvar, pharmgkb, pubmed, trials, rxnorm] = await Promise.all([
-    tools.snp(patientId),
-    tools.whoop(patientId),
-    tools.clinvar(patient.snp_rsids),
-    tools.pharmgkb(patient.snp_genes),
-    tools.pubmed(patient.gene_drug_pairs),
-    tools.trials(patient.zip, patient.snp_genes),
-    tools.rxnorm(patient.meds),
-  ]);
+  if (!FORCE_RUN && !isAppointmentToday(patient)) {
+    console.log(
+      `[claw] no appointment today for ${patientId} (next: ${patient.appointment_date || 'unset'}) — skipping`
+    )
+    return { skipped: true, reason: 'no appointment today' }
+  }
 
-  // REASON — hand the evidence bundle to Nemotron.
-  const nemotron = await tools.nemotron({
-    snp, whoop, clinvar, pharmgkb, pubmed, trials, rxnorm,
-    memory: patient.history,
-    policy,
-  });
-
-  // CHECK — deterministic safety gates always run after the model.
-  const checked = await tools.safetyCheck({ brief: nemotron, snp, rxnorm });
-
-  // REMEMBER
-  await memory.writeBrief(patientId, checked);
-  await memory.updateBaseline(patientId, whoop);
-
-  // DELIVER
-  await tools.deliver(patientId, checked);
-
-  return checked;
+  console.log(`\n[claw] ── starting agentic run for ${patientId} ──`)
+  const start = Date.now()
+  const brief = pythonRunAgent(patientId)
+  const elapsed = ((Date.now() - start) / 1000).toFixed(1)
+  const flagCount = brief?.safety_flags?.length ?? 0
+  console.log(`[claw] ── complete in ${elapsed}s — ${flagCount} safety flags ──\n`)
+  console.log(JSON.stringify(brief, null, 2))
+  return brief
 }
 
-const tools = {
-  snp:         (pid)             => axios.post(`${API}/tools/snp`,           { patient_id: pid }).then(r => r.data),
-  whoop:       (pid)             => axios.post(`${API}/tools/whoop`,         { patient_id: pid }).then(r => r.data),
-  clinvar:     (rsids)           => axios.post(`${API}/tools/clinvar`,       { rsids }).then(r => r.data),
-  pharmgkb:    (genes)           => axios.post(`${API}/tools/pharmgkb`,      { genes }).then(r => r.data),
-  pubmed:      (pairs)           => axios.post(`${API}/tools/pubmed`,        { pairs }).then(r => r.data),
-  trials:      (zip, genes)      => axios.post(`${API}/tools/trials`,        { zip, genes }).then(r => r.data),
-  rxnorm:      (meds)            => axios.post(`${API}/tools/rxnorm`,        { meds }).then(r => r.data),
-  nemotron:    (ctx)             => axios.post(`${API}/tools/nemotron`,      ctx).then(r => r.data),
-  safetyCheck: (payload)         => axios.post(`${API}/tools/safety_check`,  payload).then(r => r.data),
-  deliver:     (pid, brief)      => axios.post(`${API}/deliver/${pid}`,      brief).then(r => r.data),
-};
+export default { run }
 
-export default { run };
+const isDirectInvocation =
+  import.meta.url === `file://${process.argv[1]}` ||
+  process.argv[1]?.endsWith('agent/claw.js')
+
+if (isDirectInvocation) {
+  const target = process.argv[2]
+  if (!target) {
+    console.error('usage: node agent/claw.js <PT-XXX>')
+    process.exit(1)
+  }
+  run(target).catch((err) => {
+    console.error('[claw] failed:', err)
+    process.exit(1)
+  })
+}

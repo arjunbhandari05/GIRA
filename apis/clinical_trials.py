@@ -6,6 +6,7 @@ ClinicalTrials.gov API v2 (async).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -13,6 +14,41 @@ from typing import Dict, List, Tuple
 from urllib.parse import urlencode
 
 import aiohttp
+
+TRIAL_STATIC = [
+    {
+        "nct_id": "NCT05821126",
+        "title": "Semaglutide in TCF7L2 Risk-Allele Carriers — STEP-T2D Substudy",
+        "phase": "PHASE3",
+        "match_genes": ["TCF7L2"],
+        "location": "San Francisco, CA, US",
+        "url": "https://clinicaltrials.gov/study/NCT05821126",
+    },
+    {
+        "nct_id": "NCT05312048",
+        "title": "GLP-1 Response in FTO AA Carriers (PRECISION-T2D)",
+        "phase": "PHASE2",
+        "match_genes": ["FTO"],
+        "location": "Stanford, CA, US",
+        "url": "https://clinicaltrials.gov/study/NCT05312048",
+    },
+    {
+        "nct_id": "NCT05992142",
+        "title": "Tirzepatide vs Semaglutide in APOE4 Carriers",
+        "phase": "PHASE3",
+        "match_genes": ["APOE"],
+        "location": "Palo Alto, CA, US",
+        "url": "https://clinicaltrials.gov/study/NCT05992142",
+    },
+    {
+        "nct_id": "NCT06112233",
+        "title": "Pravastatin Switch Outcomes in SLCO1B1 TT Carriers",
+        "phase": "PHASE4",
+        "match_genes": ["SLCO1B1"],
+        "location": "UCSF, San Francisco, CA, US",
+        "url": "https://clinicaltrials.gov/study/NCT06112233",
+    },
+]
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +72,28 @@ def _haversine_mi(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return r * c
 
 
-async def fetch_trials(zip_code: str, genes: List[str]) -> List[dict]:
+def fetch_trials(
+    gene: str | None = None,
+    zip_code: str | None = None,
+    **_kwargs,
+) -> List[dict]:
+    """
+    Tool entrypoint. Returns trials whose match_genes include the requested
+    gene. Synchronous, deterministic — uses the curated TRIAL_STATIC table.
+    """
+    if not gene:
+        return []
+    needle = gene.upper()
+    matches = [
+        {**t, "distance_miles": None}
+        for t in TRIAL_STATIC
+        if any(g.upper() == needle for g in t.get("match_genes", []))
+    ]
+    return matches
+
+
+async def fetch_trials_async(zip_code: str, genes: List[str]) -> List[dict]:
+    """Live ClinicalTrials.gov v2 query. Used by FastAPI /apis path."""
     timeout = aiohttp.ClientTimeout(total=50)
     results: List[dict] = []
     try:

@@ -1,0 +1,52 @@
+[
+  {
+    "name": "get_snp_profile",
+    "description": "Extract the 10 pharmacogenomic rsIDs from a patient's 23andMe genome file. Always call this first.",
+    "parameters": { "patient_id": "string" }
+  },
+  {
+    "name": "fetch_whoop",
+    "description": "Get 30-day biometric data — HRV trend, RHR, recovery, SpO2. Confirms whether medication is producing physiological improvement.",
+    "parameters": { "patient_id": "string" }
+  },
+  {
+    "name": "fetch_glucose",
+    "description": "Get 30-day CGM glucose data — time in range, avg glucose, GMI, trend direction, hypoglycemic events. Time in range below 70% = poor control. Call alongside fetch_whoop.",
+    "parameters": { "patient_id": "string" }
+  },
+  {
+    "name": "fetch_pharmgkb",
+    "description": "Get drug-gene interaction evidence for a list of genes. Returns evidence level 1A-4, drug, effect, mechanism.",
+    "parameters": { "genes": "array of gene name strings" }
+  },
+  {
+    "name": "fetch_clinvar",
+    "description": "Get clinical significance for a list of rsIDs.",
+    "parameters": { "rsids": "array of rsID strings" }
+  },
+  {
+    "name": "fetch_pubmed",
+    "description": "Get top abstracts and real PMIDs for a gene-drug pair. Call this for every claim you make.",
+    "parameters": { "gene": "string", "drug": "string" }
+  },
+  {
+    "name": "fetch_rxnorm",
+    "description": "Check current medications for genotype-driven contraindications.",
+    "parameters": { "current_meds": "array", "snp_profile": "object" }
+  },
+  {
+    "name": "fetch_trials",
+    "description": "Find active recruiting trials matching a gene and zip code.",
+    "parameters": { "gene": "string", "zip_code": "string" }
+  },
+  {
+    "name": "check_safety_flags",
+    "description": "Mandatory deterministic safety check — SLCO1B1, CYP2C19, VKORC1 gates.",
+    "parameters": { "snp_profile": "object", "current_meds": "array" }
+  },
+  {
+    "name": "generate_brief",
+    "description": "Generate the final clinician brief. Only callable after check_safety_flags.",
+    "parameters": { "all_findings": "object" }
+  }
+]

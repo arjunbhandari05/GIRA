@@ -27,3 +27,21 @@ def get_pharmgkb(rsid: str) -> dict:
             "pmid": "",
         },
     )
+
+
+def fetch_pharmgkb(genes: list[str] | str | None = None, **_kwargs) -> list[dict]:
+    """
+    Tool entrypoint. Given a list of gene names (e.g. ["TCF7L2", "SLCO1B1"]),
+    return the matching PharmGKB annotations. Always returns a list so the
+    LLM sees a uniform shape regardless of how many hits land.
+    """
+    if not genes:
+        return []
+    if isinstance(genes, str):
+        genes = [genes]
+    wanted = {g.upper() for g in genes if g}
+    out: list[dict] = []
+    for entry in PHARMGKB_STATIC.values():
+        if entry.get("gene", "").upper() in wanted:
+            out.append(dict(entry))
+    return out

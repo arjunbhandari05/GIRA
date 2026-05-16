@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const BASE = 'http://127.0.0.1:8010';
+// Default to the vite dev proxy at /api -> http://127.0.0.1:8000
+// (configured in ui/vite.config.js with 600s timeouts for /brief).
+// Override at build time with VITE_API_BASE if hosting elsewhere.
+const BASE = import.meta.env.VITE_API_BASE || '/api';
 const api = axios.create({ baseURL: BASE, timeout: 300000 });
 
 export const getPatients = () => api.get('/patients');

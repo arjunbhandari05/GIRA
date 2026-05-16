@@ -86,6 +86,14 @@ def _hypoglycemia_signal(raw_series: dict[str, list[float]]) -> bool:
     return False
 
 
+def load_whoop(patient_id: str) -> dict:
+    """Tool-facing alias used by the agent's tool registry."""
+    try:
+        return get_whoop_analytics(patient_id)
+    except FileNotFoundError as exc:
+        return {"error": f"no whoop data for {patient_id}", "expected_path": str(exc)}
+
+
 def get_whoop_analytics(patient_id: str) -> dict:
     raw = _load_whoop_file(patient_id)
     raw_series = {"dates": raw.get("dates", [])}

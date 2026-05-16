@@ -51,3 +51,18 @@ def check_safety_flags(snp_profile: dict) -> list:
         if genotype == rule["risk_genotype"]:
             flags.append(rule.copy())
     return flags
+
+
+def check(snp_profile: dict | None = None, current_meds: list | None = None, **_kwargs) -> list:
+    """
+    Tool entrypoint. Same deterministic gates as check_safety_flags, but
+    annotated with whether the patient is actually exposed to the relevant
+    drug class via current_meds. The annotation is informational — the
+    flag fires either way so the downstream brief always sees it.
+    """
+    flags = check_safety_flags(snp_profile or {})
+    meds = [m.lower() for m in (current_meds or [])]
+    for flag in flags:
+        drug = (flag.get("drug") or "").lower()
+        flag["currently_prescribed"] = bool(drug) and any(drug in m for m in meds)
+    return flags

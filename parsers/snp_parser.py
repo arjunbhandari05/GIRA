@@ -1,7 +1,17 @@
 """Parse 23andMe raw genome exports for pharmacogenomics target SNPs."""
 
 import re
+from pathlib import Path
 from typing import Dict
+
+ROOT = Path(__file__).resolve().parents[1]
+GENOME_DIR = ROOT / "data" / "genomes"
+
+PATIENT_GENOME_FILES = {
+    "PT-001": "patient_a.txt",
+    "PT-002": "patient_b.txt",
+    "PT-003": "patient_c.txt",
+}
 
 TARGET_SNPS = {
     "rs7903146": "TCF7L2",
@@ -79,3 +89,32 @@ def parse_genome(path: str) -> dict:
                 "pos": "--",
             }
     return result
+
+
+def get_snp_profile(patient_id: str) -> dict:
+    """
+    Tool entrypoint for the agent. Resolves a patient_id to its 23andMe
+    file under data/genomes and returns the parsed profile.
+
+    Falls back to whatever is stored in the SQLite memory if no file exists.
+    """
+    filename = PATIENT_GENOME_FILES.get(patient_id) or (
+        f"{patient_id.lower().replace('-', '_')}.txt"
+    )
+    path = GENOME_DIR / filename
+    if path.exists():
+        return parse_genome(str(path))
+
+    try:
+        from agent.memory import read as _read
+
+        patient = _read(patient_id)
+        if patient and patient.get("snp_profile"):
+            return patient["snp_profile"]
+    except Exception:
+        pass
+
+    return {
+        rsid: {"gene": gene, "genotype": "--", "chrom": "--", "pos": "--"}
+        for rsid, gene in TARGET_SNPS.items()
+    }

@@ -15,6 +15,7 @@ import aiohttp
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from apis.clinvar import get_clinvar
 from apis.pharmgkb import get_pharmgkb
@@ -118,6 +119,11 @@ async def _run_api_annotations(snps: dict) -> dict:
         }
 
     return {"clinvar": clinvar, "pubmed": pubmed}
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health")

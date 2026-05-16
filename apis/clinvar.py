@@ -6,6 +6,19 @@ from urllib.parse import urlencode
 
 import aiohttp
 
+CLINVAR_STATIC = {
+    "rs7903146": {"clinical_significance": "risk factor", "condition": "Type 2 diabetes mellitus susceptibility"},
+    "rs622342": {"clinical_significance": "drug response", "condition": "Metformin response, transporter"},
+    "rs5219": {"clinical_significance": "risk factor", "condition": "Type 2 diabetes / sulfonylurea response"},
+    "rs1801282": {"clinical_significance": "drug response", "condition": "Thiazolidinedione response"},
+    "rs757110": {"clinical_significance": "drug response", "condition": "Sulfonylurea response (ABCC8/SUR1)"},
+    "rs9939609": {"clinical_significance": "risk factor", "condition": "Obesity / GLP-1 weight response"},
+    "rs4149056": {"clinical_significance": "drug response", "condition": "Statin-induced myopathy susceptibility"},
+    "rs429358": {"clinical_significance": "risk factor", "condition": "APOE4 cardiovascular disease risk"},
+    "rs4244285": {"clinical_significance": "drug response", "condition": "Clopidogrel poor metabolizer (CYP2C19*2)"},
+    "rs9923231": {"clinical_significance": "drug response", "condition": "Warfarin sensitivity (VKORC1)"},
+}
+
 BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 
 
@@ -112,6 +125,37 @@ def _clinical_significance(result: dict) -> str:
         return str(germline)
 
     return "unknown"
+
+
+def fetch_clinvar(rsids: list[str] | str | None = None, **_kwargs) -> list[dict]:
+    """
+    Tool entrypoint. Synchronous, no network — uses the curated table above
+    so the agent loop is fast and deterministic. The async `get_clinvar` is
+    still available for FastAPI's /apis path that hits NCBI live.
+    """
+    if not rsids:
+        return []
+    if isinstance(rsids, str):
+        rsids = [rsids]
+    out: list[dict] = []
+    for rsid in rsids:
+        rs = rsid.strip()
+        if not rs:
+            continue
+        info = CLINVAR_STATIC.get(rs)
+        if info:
+            out.append(
+                {
+                    "source": "ClinVar",
+                    "rsid": rs,
+                    "clinical_significance": info["clinical_significance"],
+                    "condition": info["condition"],
+                    "evidence_url": f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rs}",
+                }
+            )
+        else:
+            out.append(_not_found(rs))
+    return out
 
 
 def _condition(result: dict) -> str:

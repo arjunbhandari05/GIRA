@@ -1,19 +1,45 @@
-"""Nemotron reasoning via OpenRouter."""
+"""Nemotron reasoning — single-shot (Round 5) + agentic tool loop (Round 6)."""
 
+from __future__ import annotations
+
+import json
 import os
+import re
+import sys
 from pathlib import Path
+from typing import Any, Callable
 
 import aiohttp
+import requests
 from dotenv import load_dotenv
 
-from reasoning.prompts import build_system_prompt
+from reasoning.prompts import build_agentic_system_prompt, build_system_prompt
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", override=True)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 ERROR_TEXT = "Reasoning unavailable — check OPENROUTER_API_KEY"
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "nemotron-mini")
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
+NIM_MODEL = os.getenv("NIM_MODEL", "nvidia/nemotron-mini-4b-instruct")
+
+MAX_ITERATIONS = int(os.getenv("AGENT_MAX_ITERATIONS", "12"))
+MAX_CALLS_PER_TOOL = int(os.getenv("AGENT_MAX_CALLS_PER_TOOL", "3"))
+LOG_AGENT = os.getenv("AGENT_LOG", "true").strip().lower() in ("1", "true", "yes")
+
+
+def _log(msg: str) -> None:
+    if LOG_AGENT:
+        print(msg, file=sys.stderr, flush=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Round 5: legacy single-shot prompt path (used by FastAPI /brief)
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 async def run_nemotron(context_prompt: str) -> str:
@@ -22,7 +48,7 @@ async def run_nemotron(context_prompt: str) -> str:
         return ERROR_TEXT
 
     payload = {
-        "model": MODEL,
+        "model": OPENROUTER_MODEL,
         "max_tokens": 1000,
         "messages": [
             {"role": "system", "content": build_system_prompt()},
@@ -75,3 +101,409 @@ def _final_brief_draft_from_context(context_prompt: str) -> str:
     draft = context_prompt.split(marker, 1)[1]
     draft = draft.split("Write the brief now.", 1)[0]
     return draft.strip()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Round 6: agentic tool-calling loop
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def run_with_tools(
+    patient_id: str,
+    patient: dict[str, Any],
+    tools: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Drive Nemotron through a tool-calling loop. The model emits one of:
+
+      {"tool_call": {"name": "...", "args": {...}}}
+      {"done": true}
+
+    per turn. We execute the tool, feed the result back, and continue until
+    `generate_brief` returns or MAX_ITERATIONS is hit.
+
+    If no LLM is reachable (Ollama down, no NVIDIA_API_KEY), we fall back
+    to a deterministic plan that walks the canonical tool order so
+    verification still produces a brief.
+    """
+    findings: dict[str, Any] = {"patient": patient}
+    tools_by_name = {t["name"]: t for t in tools}
+    descriptions = "\n".join(
+        f"- {t['name']}: {t['description']}" for t in tools
+    )
+
+    system_prompt = build_agentic_system_prompt(descriptions)
+    user_prompt = (
+        f"Generate a pharmacogenomic brief for patient {patient_id}.\n"
+        f"Current medications: {json.dumps(patient.get('current_meds', []) or patient.get('meds', []))}\n"
+        f"Zip code: {patient.get('zip_code') or patient.get('zip', 'unknown')}\n\n"
+        "Call tools in this order based on what you find:\n"
+        "1. get_snp_profile first — always\n"
+        "2. fetch_clinvar for high-risk rsIDs\n"
+        "3. fetch_pharmgkb for flagged genes\n"
+        "4. fetch_whoop and fetch_glucose together — confirm medication response\n"
+        "5. fetch_rxnorm before any medication change recommendation\n"
+        "6. fetch_pubmed for every gene-drug claim\n"
+        "7. fetch_trials if TCF7L2 TT or FTO AA or APOE4 found\n"
+        "8. check_safety_flags — mandatory\n"
+        "9. generate_brief — only after check_safety_flags\n\n"
+        "Respond with ONE JSON object per turn:\n"
+        '  {"tool_call": {"name": "tool_name", "args": {...}}}\n'
+        "When all tools have been called and the brief generated, respond:\n"
+        '  {"done": true}\n'
+    )
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    call_counts: dict[str, int] = {}
+    safety_checked = False
+    backend = _detect_backend()
+    _log(f"[nemotron] backend={backend}  patient={patient_id}  tools={len(tools)}")
+
+    if backend == "none":
+        _log("[nemotron] no LLM reachable — using deterministic fallback plan")
+        return _deterministic_plan(patient_id, patient, tools_by_name, findings)
+
+    for iteration in range(MAX_ITERATIONS):
+        try:
+            response_text = _call_model(messages, backend)
+        except Exception as exc:
+            _log(f"[nemotron] model call failed at iter {iteration + 1}: {exc}")
+            return _deterministic_plan(patient_id, patient, tools_by_name, findings)
+
+        _log(f"[nemotron] iter {iteration + 1}: {response_text[:160].replace(chr(10), ' ')}...")
+        parsed = _safe_json(response_text)
+
+        if parsed is None:
+            messages.append({"role": "assistant", "content": response_text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Your last response was not a single valid JSON object. "
+                        'Respond with exactly one of: {"tool_call": {"name": "...", "args": {...}}} '
+                        'or {"done": true}.'
+                    ),
+                }
+            )
+            continue
+
+        if parsed.get("done"):
+            if not safety_checked:
+                _log("[nemotron] tried to finish without safety check — enforcing")
+                messages.append({"role": "assistant", "content": response_text})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "You must call check_safety_flags before finishing.",
+                    }
+                )
+                continue
+            if "generate_brief" not in findings:
+                _log("[nemotron] done without generate_brief — forcing it")
+                forced = _execute_tool(
+                    "generate_brief",
+                    {"all_findings": findings},
+                    tools_by_name,
+                )
+                findings["generate_brief"] = forced
+                return forced
+            return findings["generate_brief"]
+
+        call = parsed.get("tool_call") or {}
+        name = call.get("name")
+        if not name:
+            messages.append({"role": "assistant", "content": response_text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Missing 'name' in tool_call. Respond with a valid tool_call object.",
+                }
+            )
+            continue
+
+        if name not in tools_by_name:
+            messages.append({"role": "assistant", "content": response_text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        f"Unknown tool '{name}'. Available: "
+                        + ", ".join(tools_by_name.keys())
+                    ),
+                }
+            )
+            continue
+
+        if name == "generate_brief" and not safety_checked:
+            messages.append({"role": "assistant", "content": response_text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Policy: call check_safety_flags before generate_brief.",
+                }
+            )
+            continue
+
+        if call_counts.get(name, 0) >= MAX_CALLS_PER_TOOL:
+            messages.append({"role": "assistant", "content": response_text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Tool '{name}' already called {MAX_CALLS_PER_TOOL} times — pick a different tool.",
+                }
+            )
+            continue
+
+        args = call.get("args") or {}
+        args = _enrich_args(name, args, findings, patient)
+
+        _log(f"[nemotron] tool: {name}  args: {json.dumps(args, default=str)[:140]}")
+        result = _execute_tool(name, args, tools_by_name)
+        findings[name] = result
+        call_counts[name] = call_counts.get(name, 0) + 1
+
+        if name == "check_safety_flags":
+            safety_checked = True
+
+        if name == "generate_brief":
+            return result
+
+        messages.append({"role": "assistant", "content": response_text})
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Tool {name} returned: "
+                    f"{json.dumps(result, default=str)[:600]}\n\n"
+                    "What is the next tool call?"
+                ),
+            }
+        )
+
+    _log("[nemotron] max iterations reached — falling back to deterministic plan")
+    return _deterministic_plan(patient_id, patient, tools_by_name, findings)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Backend selection + transport
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _detect_backend() -> str:
+    """Return 'nim', 'ollama', or 'none' based on what's reachable now."""
+    if NVIDIA_API_KEY:
+        return "nim"
+    try:
+        resp = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=2)
+        if resp.status_code == 200:
+            return "ollama"
+    except Exception:
+        pass
+    return "none"
+
+
+def _call_model(messages: list[dict[str, str]], backend: str) -> str:
+    if backend == "nim":
+        return _call_nim(messages)
+    if backend == "ollama":
+        return _call_ollama(messages)
+    raise RuntimeError("no LLM backend available")
+
+
+def _call_ollama(messages: list[dict[str, str]]) -> str:
+    response = requests.post(
+        f"{OLLAMA_HOST}/api/chat",
+        json={
+            "model": OLLAMA_MODEL,
+            "messages": messages,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1},
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return (body.get("message") or {}).get("content") or ""
+
+
+def _call_nim(messages: list[dict[str, str]]) -> str:
+    response = requests.post(
+        "https://integrate.api.nvidia.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {NVIDIA_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": NIM_MODEL,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 1024,
+            "response_format": {"type": "json_object"},
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return (body.get("choices", [{}])[0].get("message") or {}).get("content") or ""
+
+
+def _safe_json(text: str) -> dict | None:
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+
+
+def _execute_tool(
+    name: str,
+    args: dict,
+    tools_by_name: dict[str, dict[str, Any]],
+) -> Any:
+    tool = tools_by_name.get(name)
+    if not tool:
+        return {"error": f"Tool {name} not found"}
+    fn: Callable = tool["fn"]
+    try:
+        return fn(args)
+    except Exception as exc:
+        _log(f"[tool error] {name}: {exc}")
+        return {"error": str(exc)}
+
+
+def _enrich_args(
+    name: str,
+    args: dict[str, Any],
+    findings: dict[str, Any],
+    patient: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Patch in obvious fallbacks the model is allowed to omit. Keeps the
+    LLM honest about ordering — these are dependencies, not new data.
+    """
+    args = dict(args or {})
+    snp_profile = findings.get("get_snp_profile") or patient.get("snp_profile") or {}
+    current_meds = (
+        args.get("current_meds")
+        or patient.get("current_meds")
+        or patient.get("meds")
+        or []
+    )
+
+    if name == "get_snp_profile":
+        args.setdefault("patient_id", patient.get("patient_id"))
+    elif name in ("fetch_whoop", "fetch_glucose"):
+        args.setdefault("patient_id", patient.get("patient_id"))
+    elif name == "fetch_clinvar":
+        if not args.get("rsids"):
+            args["rsids"] = list(snp_profile.keys())
+    elif name == "fetch_pharmgkb":
+        if not args.get("genes"):
+            args["genes"] = sorted(
+                {
+                    snp.get("gene")
+                    for snp in snp_profile.values()
+                    if isinstance(snp, dict) and snp.get("gene")
+                }
+            )
+    elif name == "fetch_rxnorm":
+        args.setdefault("current_meds", current_meds)
+        args.setdefault("snp_profile", snp_profile)
+    elif name == "fetch_trials":
+        args.setdefault(
+            "zip_code", patient.get("zip_code") or patient.get("zip", "")
+        )
+    elif name == "check_safety_flags":
+        args.setdefault("snp_profile", snp_profile)
+        args.setdefault("current_meds", current_meds)
+    elif name == "generate_brief":
+        args.setdefault("all_findings", findings)
+    return args
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Deterministic fallback — keeps verification useful even with no LLM
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+DETERMINISTIC_PLAN = [
+    "get_snp_profile",
+    "fetch_clinvar",
+    "fetch_pharmgkb",
+    "fetch_whoop",
+    "fetch_glucose",
+    "fetch_rxnorm",
+    "fetch_pubmed",
+    "fetch_trials",
+    "check_safety_flags",
+    "generate_brief",
+]
+
+
+def _deterministic_plan(
+    patient_id: str,
+    patient: dict[str, Any],
+    tools_by_name: dict[str, dict[str, Any]],
+    findings: dict[str, Any],
+) -> dict[str, Any]:
+    snp_profile = patient.get("snp_profile") or {}
+    primary_rsids = ["rs7903146", "rs622342", "rs4149056", "rs4244285", "rs9939609"]
+    primary_genes = ["TCF7L2", "SLC22A1", "SLCO1B1", "CYP2C19", "FTO"]
+    pubmed_pairs = [
+        ("TCF7L2", "metformin"),
+        ("TCF7L2", "semaglutide"),
+        ("SLCO1B1", "atorvastatin"),
+        ("CYP2C19", "clopidogrel"),
+    ]
+
+    for tool_name in DETERMINISTIC_PLAN:
+        if tool_name == "fetch_pubmed":
+            collected: list[dict] = []
+            for gene, drug in pubmed_pairs:
+                got = _execute_tool("fetch_pubmed", {"gene": gene, "drug": drug}, tools_by_name)
+                if isinstance(got, list):
+                    collected.extend(got)
+            findings["fetch_pubmed"] = collected
+            continue
+
+        if tool_name == "fetch_trials":
+            trials: list[dict] = []
+            for gene in primary_genes:
+                got = _execute_tool(
+                    "fetch_trials",
+                    {"gene": gene, "zip_code": patient.get("zip_code") or patient.get("zip", "")},
+                    tools_by_name,
+                )
+                if isinstance(got, list):
+                    trials.extend(got)
+            findings["fetch_trials"] = trials
+            continue
+
+        if tool_name == "fetch_clinvar":
+            args = {"rsids": primary_rsids or list(snp_profile.keys())}
+        elif tool_name == "fetch_pharmgkb":
+            args = {"genes": primary_genes}
+        else:
+            args = {}
+
+        args = _enrich_args(tool_name, args, findings, patient)
+        result = _execute_tool(tool_name, args, tools_by_name)
+        findings[tool_name] = result
+        if tool_name == "generate_brief":
+            return result
+
+    return findings.get("generate_brief") or {}

@@ -2,10 +2,16 @@
 apis/rxnorm.py
 
 RxNav approximate match + pairwise interaction lookup.
+
+The async fetch_rxnorm_async preserves the live RxNav behavior used by
+FastAPI's /apis route. The sync `fetch_rxnorm` below is the agent
+entrypoint — it pairs current meds against the genotype to surface
+genotype-driven contraindications without hitting the network.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Dict, List, Tuple
 
@@ -31,30 +37,127 @@ def _normalize_severity(text: str) -> str:
     return "moderate"
 
 
-async def fetch_rxnorm(meds: List[str]) -> List[dict]:
+GENOTYPE_FLAGS = {
+    ("rs4149056", "TT"): {
+        "drug_class": "statin",
+        "severity": "contraindicated",
+        "description": "SLCO1B1 TT — statin myopathy risk 16.9x. Switch to pravastatin or rosuvastatin.",
+        "pmid": "18987363",
+    },
+    ("rs4244285", "AA"): {
+        "drug_class": "clopidogrel",
+        "severity": "contraindicated",
+        "description": "CYP2C19 *2/*2 poor metabolizer — clopidogrel ineffective. Switch to prasugrel or ticagrelor.",
+        "pmid": "19106084",
+    },
+    ("rs9923231", "AA"): {
+        "drug_class": "warfarin",
+        "severity": "serious",
+        "description": "VKORC1 AA — reduce warfarin dose 25–50%, monitor INR closely.",
+        "pmid": "17898316",
+    },
+    ("rs622342", "AA"): {
+        "drug_class": "metformin",
+        "severity": "moderate",
+        "description": "SLC22A1 AA — OCT1 transport reduced ~50%; metformin response likely impaired.",
+        "pmid": "21378095",
+    },
+}
+
+DRUG_TO_RSID_CLASS = {
+    "statin": [
+        ("rs4149056", "TT"),
+    ],
+    "atorvastatin": [("rs4149056", "TT")],
+    "rosuvastatin": [("rs4149056", "TT")],
+    "simvastatin": [("rs4149056", "TT")],
+    "clopidogrel": [("rs4244285", "AA")],
+    "warfarin": [("rs9923231", "AA")],
+    "metformin": [("rs622342", "AA")],
+}
+
+
+def _drug_class(med: str) -> str | None:
+    lower = med.lower()
+    for key in DRUG_TO_RSID_CLASS.keys():
+        if key in lower:
+            return key
+    return None
+
+
+def fetch_rxnorm(
+    current_meds: List[str] | None = None,
+    snp_profile: Dict[str, dict] | None = None,
+    **_kwargs,
+) -> List[dict]:
+    """
+    Tool entrypoint. Synchronous, deterministic. Cross-references the
+    patient's current_meds against their genotype and returns any flagged
+    interactions (genotype-driven contraindications) plus any pairwise
+    drug interactions resolvable from RxNav (best-effort, network-optional).
+    """
+    meds = [m.strip() for m in (current_meds or []) if m and m.strip()]
+    snp_profile = snp_profile or {}
+    interactions: List[dict] = []
+
+    for med in meds:
+        klass = _drug_class(med)
+        if not klass:
+            continue
+        for rsid, risk in DRUG_TO_RSID_CLASS.get(klass, []):
+            genotype = (snp_profile.get(rsid) or {}).get("genotype")
+            if genotype == risk:
+                flag = GENOTYPE_FLAGS.get((rsid, risk), {}).copy()
+                flag.update({"drug": med, "rsid": rsid, "genotype": genotype})
+                interactions.append(flag)
+
+    try:
+        asyncio.get_running_loop()
+        running_loop = True
+    except RuntimeError:
+        running_loop = False
+
+    if not running_loop:
+        try:
+            live = asyncio.run(_fetch_rxnorm_async(meds))
+            if live:
+                interactions.extend(live)
+        except Exception:
+            pass
+
+    interactions.sort(key=lambda row: SEVERITY_RANK.get(str(row.get("severity")), 9))
+    return interactions
+
+
+async def _fetch_rxnorm_async(meds: List[str]) -> List[dict]:
     clean = [m.strip() for m in meds if m and m.strip()]
     if len(clean) < 1:
         return []
 
-    timeout = aiohttp.ClientTimeout(total=40)
-    resolved: Dict[str, Tuple[str, str]] = {}  # lower_name -> (original, rxcui)
+    timeout = aiohttp.ClientTimeout(total=10)
+    resolved: Dict[str, Tuple[str, str]] = {}
     interactions: List[dict] = []
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        for med in clean:
-            rxcui = await _resolve_rxcui(session, med)
-            if rxcui:
-                resolved[med.lower()] = (med, rxcui)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for med in clean:
+                rxcui = await _resolve_rxcui(session, med)
+                if rxcui:
+                    resolved[med.lower()] = (med, rxcui)
 
-        names = list(resolved.keys())
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                a_name, a_cui = resolved[names[i]]
-                b_name, b_cui = resolved[names[j]]
-                pairs = await _pair_interactions(session, a_cui, b_cui, a_name, b_name)
-                interactions.extend(pairs)
+            names = list(resolved.keys())
+            for i in range(len(names)):
+                for j in range(i + 1, len(names)):
+                    a_name, a_cui = resolved[names[i]]
+                    b_name, b_cui = resolved[names[j]]
+                    pairs = await _pair_interactions(
+                        session, a_cui, b_cui, a_name, b_name
+                    )
+                    interactions.extend(pairs)
+    except Exception:
+        return interactions
 
-    interactions.sort(key=lambda row: SEVERITY_RANK.get(row["severity"], 9))
+    interactions.sort(key=lambda row: SEVERITY_RANK.get(row.get("severity", ""), 9))
     return interactions
 
 
