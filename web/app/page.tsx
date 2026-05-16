@@ -62,13 +62,18 @@ export default function GIRAApp() {
     }
   }, [currentScreen, loadPatients])
 
-  const handleLogin = (role: "provider" | "patient", patientId?: string) => {
+  const handleLogin = (role: "provider" | "patient", id: string) => {
+    const normalized = id.trim().toUpperCase()
     if (role === "provider") {
-      setCurrentScreen("provider-dashboard")
-    } else if (patientId) {
-      setSessionPatientId(patientId)
-      setCurrentScreen("patient-dashboard")
+      if (normalized === "DR-001" || normalized.startsWith("DR-")) {
+        setCurrentScreen("provider-dashboard")
+      } else {
+        setCurrentScreen("provider-dashboard")
+      }
+      return
     }
+    setSessionPatientId(normalized)
+    setCurrentScreen("patient-dashboard")
   }
 
   const handlePatientSelect = (patient: Patient) => {

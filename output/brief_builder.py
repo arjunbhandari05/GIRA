@@ -389,20 +389,23 @@ def _citation_set_used_only(
 
     out: list[dict] = []
     for pmid in used:
-        row = by_pmid.get(pmid) or {
-            "pmid": pmid,
-            "title": "",
-            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
-        }
+        row = by_pmid.get(pmid)
+        if not row:
+            continue
+        title = (row.get("title") or "").strip()
+        if not title:
+            continue
         note = row.get("evidence_note") or _citation_inference(
             pmid, recommendation, safety_flags, pubmed_hits
         )
         out.append(
             {
                 "pmid": pmid,
-                "title": row.get("title") or "",
+                "title": title,
                 "url": row.get("url") or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
                 "inference": note,
+                "gene": row.get("gene"),
+                "drug": row.get("drug"),
             }
         )
     return out

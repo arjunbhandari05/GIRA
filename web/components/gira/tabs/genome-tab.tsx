@@ -5,6 +5,7 @@ import { FileText, Loader2 } from "lucide-react"
 import { getSafetyFlags, listPatients } from "@/lib/api"
 import { snpStatusFromFlags } from "@/lib/mappers"
 import type { SafetyFlag, SNPStatus } from "@/lib/types"
+import SnpDetailPanel from "../snp-detail-panel"
 
 interface GenomeTabProps {
   patientId: string
@@ -24,6 +25,7 @@ export default function GenomeTab({ patientId }: GenomeTabProps) {
     }>
   >([])
   const [meta, setMeta] = useState({ parsedAt: "", count: 0 })
+  const [panel, setPanel] = useState<{ gene: string; rsid: string; genotype: string } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -128,7 +130,11 @@ export default function GenomeTab({ patientId }: GenomeTabProps) {
                 snps.map((snp, i) => {
                   const styles = getStatusStyles(snp.status)
                   return (
-                    <tr key={snp.rsid} className={`border-b border-[#E8E6F0] last:border-0 ${styles.row}`}>
+                    <tr
+                      key={snp.rsid}
+                      className={`border-b border-[#E8E6F0] last:border-0 cursor-pointer hover:bg-[#FAFAFC] ${styles.row}`}
+                      onClick={() => setPanel({ gene: snp.gene, rsid: snp.rsid, genotype: snp.genotype })}
+                    >
                       <td className="px-4 py-3 font-mono font-semibold">{snp.gene}</td>
                       <td className="px-4 py-3 font-mono text-[12px] text-[#9895A8]">{snp.rsid}</td>
                       <td className={`px-4 py-3 font-mono text-[14px] font-bold ${styles.genotype}`}>
@@ -145,6 +151,15 @@ export default function GenomeTab({ patientId }: GenomeTabProps) {
           </table>
         </div>
       </div>
+
+      {panel && (
+        <SnpDetailPanel
+          gene={panel.gene}
+          rsid={panel.rsid}
+          genotype={panel.genotype}
+          onClose={() => setPanel(null)}
+        />
+      )}
     </div>
   )
 }

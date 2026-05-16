@@ -132,6 +132,7 @@ export interface LogLine {
   timestamp: string
   text: string
   type: "info" | "warning" | "error" | "success"
+  toolLabel?: string
 }
 
 export interface UiRecommendation {

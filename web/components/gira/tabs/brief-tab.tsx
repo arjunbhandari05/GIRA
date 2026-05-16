@@ -16,13 +16,13 @@ import { motion } from "framer-motion"
 import type { AgentBrief, LogLine, Patient, SafetyFlag } from "@/lib/types"
 import { getAgentBrief, getSafetyFlags, listPatients, streamAgentBrief } from "@/lib/api"
 import {
-  briefToRecommendations,
-  formatTraceStep,
   genotypeForFlag,
   severityUi,
   traceStepToLogLine,
   traceToLogLines,
 } from "@/lib/mappers"
+import AgentConsole from "../agent-console"
+import DoctorBriefView from "../doctor-brief-view"
 import type { TraceStep } from "@/lib/types"
 
 interface BriefTabProps {
@@ -40,7 +40,6 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
   const [snpProfile, setSnpProfile] = useState<Record<string, { genotype?: string }>>({})
   const [pipelineError, setPipelineError] = useState<string | null>(null)
   const [loadingCache, setLoadingCache] = useState(true)
-  const logRef = useRef<HTMLDivElement>(null)
   const pipelineStartRef = useRef<number>(0)
 
   const sourceCards = [
@@ -49,12 +48,6 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
     { id: "clinical", title: "Clinical APIs", subtitle: "ClinVar · PubMed", icon: Database, accentColor: "#5B3FD4" },
     { id: "intake", title: "Intake Form", subtitle: "Clinician chart", icon: ClipboardList, accentColor: "#B45309" },
   ]
-
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight
-    }
-  }, [logLines])
 
   const loadContext = useCallback(async () => {
     const [flags, rows] = await Promise.all([
@@ -283,10 +276,6 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
         prescribed: f.currently_prescribed,
       }))
 
-  const recommendations = brief ? briefToRecommendations(brief) : []
-  const snpRows = brief?.snp_summary || []
-  const trials = brief?.trial_matches || []
-  const citations = brief?.citations || []
 
   const bannerDetail =
     displayFlags.find((f) => f.severity === "critical" && f.prescribed)?.description ||
@@ -340,7 +329,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
             className="flex items-center gap-2 px-4 py-2 border border-[#5B3FD4] text-[#5B3FD4] bg-white rounded-md text-[13px] font-medium hover:bg-[#5B3FD4] hover:text-white transition-colors disabled:opacity-50 shrink-0"
           >
             {pipelineRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {pipelineRunning ? "Generating…" : pipelineComplete ? "Regenerate GIRA brief" : "Generate GIRA brief"}
+            {pipelineRunning ? "Running…" : pipelineComplete ? "Run GIRA Agent again" : "Run GIRA Agent"}
           </button>
         </div>
 
@@ -366,229 +355,29 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
           })}
         </div>
 
-        <motion.div
-          ref={logRef}
-          className="bg-[#0D0B14] font-mono text-[12px] p-4 h-48 overflow-y-auto rounded-lg mx-5 mb-5"
-        >
-          {loadingCache && logLines.length === 0 ? (
-            <motion.div className="text-[#4A4757]">Checking cached brief…</motion.div>
-          ) : logLines.length === 0 ? (
-            <div className="text-[#4A4757]">
-              Click &quot;Generate GIRA brief&quot; to run tools in parallel (usually 1–3 min)
-            </div>
-          ) : (
-            <>
-              {logLines.map((line, i) => (
-                <div
-                  key={i}
-                  className={
-                    line.type === "warning"
-                      ? "text-[#B45309]"
-                      : line.type === "error"
-                        ? "text-[#C0392B]"
-                        : line.type === "success"
-                          ? "text-[#1A9E6E]"
-                          : "text-[#C4C1D0]"
-                  }
-                >
-                  <span className="text-[#4A4757] mr-3">[{line.timestamp}]</span>
-                  {line.text}
-                </div>
-              ))}
-              {pipelineRunning && (
-                <div className="text-[#4A4757] mt-1 animate-pulse">
-                  <span className="text-[#4A4757] mr-3">[···]</span>
-                  GIRA working…
-                </div>
-              )}
-            </>
-          )}
-        </motion.div>
+        <div className="px-5 pb-5">
+          <AgentConsole
+            lines={logLines}
+            running={pipelineRunning}
+            loading={loadingCache}
+            emptyHint='Click "Run GIRA Agent" to start (usually 1–3 min)'
+            defaultOpen={pipelineRunning}
+          />
+        </div>
 
         {pipelineError && (
           <p className="px-5 pb-4 text-[13px] text-[#C0392B]">{pipelineError}</p>
         )}
       </div>
 
-      {pipelineComplete && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-          {brief?.patient_summary && (
-            <div className="border border-[#E8E6F0] rounded-lg bg-white p-4">
-              <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8] mb-2">Summary</p>
-              <p className="text-[13px] text-[#6B6778] leading-relaxed">{brief.patient_summary}</p>
-            </div>
-          )}
-
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">
-              Safety Flags ({displayFlags.length})
-            </p>
-            {displayFlags.length === 0 ? (
-              <p className="text-[13px] text-[#9895A8]">No flags returned.</p>
-            ) : (
-              displayFlags.map((flag) => (
-                <div
-                  key={`${flag.gene}-${flag.rsid}`}
-                  className={`border-l-[3px] ${
-                    flag.severity === "critical" ? "border-l-[#C0392B]" : "border-l-[#B45309]"
-                  } border border-[#E8E6F0] rounded-lg bg-white p-4`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-[14px] font-bold text-[#0D0B14]">{flag.gene}</span>
-                    <span
-                      className={`font-mono text-[14px] font-bold ${
-                        flag.severity === "critical" ? "text-[#C0392B]" : "text-[#B45309]"
-                      }`}
-                    >
-                      {flag.genotype}
-                    </span>
-                  </div>
-                  <p className="text-[13px] text-[#6B6778]">{flag.description}</p>
-                  <p className="text-[12px] font-mono text-[#9895A8] mt-2">{flag.source}</p>
-                  <p
-                    className={`text-[11px] font-semibold mt-2 ${
-                      flag.severity === "critical" ? "text-[#C0392B]" : "text-[#B45309]"
-                    }`}
-                  >
-                    {flag.severity === "critical" ? "Critical" : "Warning"}
-                    {flag.prescribed ? " · on current meds" : ""}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">
-              Recommendations (rule-based)
-            </p>
-            {recommendations.length === 0 ? (
-              <p className="text-[13px] text-[#9895A8]">No switch required per deterministic guard.</p>
-            ) : (
-              recommendations.map((rec, i) => (
-                <div
-                  key={i}
-                  className={`border-l-[3px] ${
-                    rec.type === "discontinue"
-                      ? "border-l-[#C0392B]"
-                      : rec.type === "start"
-                        ? "border-l-[#1A9E6E]"
-                        : "border-l-[#5B3FD4]"
-                  } border border-[#E8E6F0] rounded-lg bg-white p-4`}
-                >
-                  <p className="text-[13px] font-semibold text-[#0D0B14]">{rec.title}</p>
-                  <p className="text-[13px] text-[#6B6778] mt-1">{rec.body}</p>
-                </div>
-              ))
-            )}
-          </div>
-
-          {trials.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Trial Scout</p>
-              {trials.map((t) => (
-                <div
-                  key={t.nct_id || t.title}
-                  className="border-l-[3px] border-l-[#5B3FD4] border border-[#E8E6F0] rounded-lg bg-white p-5"
-                >
-                  <p className="text-[14px] font-semibold text-[#0D0B14]">{t.title}</p>
-                  {t.phase && <p className="text-[12px] text-[#9895A8] mt-1">{t.phase}</p>}
-                  {t.location && <p className="text-[13px] text-[#6B6778] mt-1">{t.location}</p>}
-                  {t.match_genes?.length ? (
-                    <p className="text-[12px] font-mono text-[#9895A8] mt-2">
-                      Genes: {t.match_genes.join(", ")}
-                    </p>
-                  ) : null}
-                  {t.url && (
-                    <a
-                      href={t.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[12px] text-[#5B3FD4] mt-2 inline-block"
-                    >
-                      {t.nct_id || "View trial"}
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {snpRows.length > 0 && (
-            <div className="border border-[#E8E6F0] rounded-lg bg-white overflow-hidden">
-              <motion.div className="px-5 py-3 border-b border-[#E8E6F0]">
-                <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">SNP Profile</p>
-              </motion.div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr className="border-b border-[#E8E6F0]">
-                      {["Gene", "rsID", "Genotype", "Impact", "Evidence"].map((h) => (
-                        <th
-                          key={h}
-                          className="px-4 py-2 text-left text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#E8E6F0]">
-                    {snpRows.slice(0, 10).map((snp) => {
-                      const isFlag = safetyFlags.some((f) => f.rsid === snp.rsid)
-                      return (
-                        <tr key={snp.rsid} className={isFlag ? "bg-[#FDF9F9]" : ""}>
-                          <td className="px-4 py-3 font-mono font-semibold">{snp.gene}</td>
-                          <td className="px-4 py-3 font-mono text-[12px] text-[#9895A8]">{snp.rsid}</td>
-                          <td
-                            className={`px-4 py-3 font-mono text-[14px] font-bold ${
-                              isFlag ? "text-[#C0392B]" : "text-[#1A9E6E]"
-                            }`}
-                          >
-                            {snp.genotype}
-                          </td>
-                          <td className="px-4 py-3 text-[#6B6778]">{snp.finding}</td>
-                          <td className="px-4 py-3 text-[#9895A8]">{snp.evidence_level || "—"}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {citations.length > 0 && (
-            <div className="border border-[#E8E6F0] rounded-lg bg-white p-4 space-y-2">
-              <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Citations</p>
-              {citations.map((c) => (
-                <motion.div key={c.pmid} className="text-[13px]">
-                  <a href={c.url} target="_blank" rel="noopener noreferrer" className="text-[#5B3FD4] font-medium">
-                    PMID {c.pmid}
-                  </a>
-                  {c.title && <span className="text-[#6B6778]"> — {c.title}</span>}
-                  {c.inference && <p className="text-[12px] text-[#9895A8] mt-0.5">{c.inference}</p>}
-                </motion.div>
-              ))}
-            </div>
-          )}
-
-          {brief?._trace && brief._trace.length > 0 && (
-            <div className="border border-[#E8E6F0] rounded-lg bg-white overflow-hidden">
-              <div className="px-5 py-3 border-b border-[#E8E6F0]">
-                <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Tool trace</p>
-              </div>
-              <div className="divide-y divide-[#E8E6F0] max-h-64 overflow-y-auto">
-                {brief._trace.map((step, i) => (
-                  <motion.div key={i} className="px-4 py-2 text-[12px] flex gap-3">
-                    <span className="text-[#9895A8] shrink-0 w-6">{step.step ?? i + 1}</span>
-                    <span className="text-[#6B6778]">{formatTraceStep(step)}</span>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          )}
-
+      {pipelineComplete && brief && (
+        <>
+          <DoctorBriefView
+            patient={patient}
+            brief={brief}
+            safetyFlags={safetyFlags}
+            snpProfile={snpProfile}
+          />
           <button
             type="button"
             onClick={onNavigateIntake}
@@ -596,11 +385,7 @@ export default function BriefTab({ patient, onNavigateIntake }: BriefTabProps) {
           >
             Update medications (intake form)
           </button>
-
-          <p className="text-[11px] text-[#C4C1D4] text-center">
-            Generated by GIRA · {brief?.generated_at ? new Date(brief.generated_at).toLocaleString() : "—"}
-          </p>
-        </motion.div>
+        </>
       )}
     </div>
   )

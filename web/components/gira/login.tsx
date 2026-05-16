@@ -1,59 +1,70 @@
 "use client"
 
 import { useState } from "react"
-import { Stethoscope, User, ArrowRight, Loader2, ChevronLeft } from "lucide-react"
+import { Stethoscope, User, ArrowRight, ChevronLeft, Loader2, AlertCircle } from "lucide-react"
 import { motion } from "framer-motion"
 import GiraLogo from "./gira-logo"
-import { listPatients } from "@/lib/api"
+import { validateLogin } from "@/lib/auth"
 
 interface LoginProps {
-  onLogin: (role: "provider" | "patient", patientId?: string) => void
+  onLogin: (role: "provider" | "patient", id: string) => void
 }
 
 export default function Login({ onLogin }: LoginProps) {
-  const [patientPicker, setPatientPicker] = useState(false)
-  const [patients, setPatients] = useState<{ patient_id: string; name?: string }[]>([])
-  const [loadingPatients, setLoadingPatients] = useState(false)
-  const [pickerError, setPickerError] = useState<string | null>(null)
+  const [step, setStep] = useState<"role" | "credentials">("role")
+  const [role, setRole] = useState<"provider" | "patient" | null>(null)
+  const [userId, setUserId] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  const openPatientPicker = async () => {
-    setPatientPicker(true)
-    setPickerError(null)
-    setLoadingPatients(true)
-    try {
-      const rows = await listPatients()
-      setPatients(rows)
-    } catch {
-      setPickerError("Could not load patients. Is the API running?")
-      setPatients([])
-    } finally {
-      setLoadingPatients(false)
-    }
+  const selectRole = (r: "provider" | "patient") => {
+    setRole(r)
+    setStep("credentials")
+    setUserId("")
+    setPassword("")
+    setError(null)
   }
+
+  const submitCredentials = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!role || !userId.trim()) return
+
+    setSubmitting(true)
+    setError(null)
+
+    const result = await validateLogin(role, userId)
+    setSubmitting(false)
+
+    if (!result.ok) {
+      setError(result.message)
+      return
+    }
+
+    onLogin(role, userId.trim().toUpperCase())
+  }
+
+  const inputBorder = error
+    ? "border-[#C0392B] focus:border-[#C0392B]"
+    : "border-[#E8E6F0] focus:border-[#5B3FD4]"
 
   return (
     <motion.div className="min-h-screen flex flex-col items-center justify-center px-6 bg-white">
-      <div className="w-full max-w-md">
-        <motion.div
-          className="flex justify-center mb-16"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6 }}
-        >
-          <GiraLogo size="lg" showTagline={true} />
-        </motion.div>
+      <motion.div
+        className="w-full max-w-md"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="flex justify-center mb-12">
+          <GiraLogo size="lg" showTagline />
+        </div>
 
-        {!patientPicker ? (
-          <motion.div
-            className="space-y-3"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.5 }}
-          >
+        {step === "role" ? (
+          <motion.div className="space-y-3" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <button
               type="button"
-              onClick={() => onLogin("provider")}
-              className="w-full px-5 py-4 bg-white border border-[#E8E6F0] rounded-lg text-left group hover:border-[#C4C1D4] hover:border-l-[3px] hover:border-l-[#5B3FD4] transition-colors duration-200"
+              onClick={() => selectRole("provider")}
+              className="w-full px-5 py-4 border border-[#E8E6F0] rounded-lg text-left hover:border-l-[#5B3FD4] hover:border-l-[3px] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -63,14 +74,13 @@ export default function Login({ onLogin }: LoginProps) {
                     <p className="text-[13px] text-[#9895A8]">Create patients and run GIRA clinical briefs</p>
                   </div>
                 </div>
-                <ArrowRight className="w-5 h-5 text-[#C4C1D4] group-hover:text-[#5B3FD4] transition-colors" />
+                <ArrowRight className="w-5 h-5 text-[#C4C1D4]" />
               </div>
             </button>
-
             <button
               type="button"
-              onClick={openPatientPicker}
-              className="w-full px-5 py-4 bg-white border border-[#E8E6F0] rounded-lg text-left group hover:border-[#C4C1D4] hover:border-l-[3px] hover:border-l-[#1A9E6E] transition-colors duration-200"
+              onClick={() => selectRole("patient")}
+              className="w-full px-5 py-4 border border-[#E8E6F0] rounded-lg text-left hover:border-l-[#1A9E6E] hover:border-l-[3px] transition-colors"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
@@ -80,64 +90,98 @@ export default function Login({ onLogin }: LoginProps) {
                     <p className="text-[13px] text-[#9895A8]">View your health summary</p>
                   </div>
                 </div>
-                <ArrowRight className="w-5 h-5 text-[#C4C1D4] group-hover:text-[#1A9E6E] transition-colors" />
+                <ArrowRight className="w-5 h-5 text-[#C4C1D4]" />
               </div>
             </button>
           </motion.div>
         ) : (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-4"
-          >
+          <form onSubmit={submitCredentials} className="space-y-4">
             <button
               type="button"
-              onClick={() => setPatientPicker(false)}
+              onClick={() => {
+                setStep("role")
+                setRole(null)
+                setError(null)
+              }}
               className="flex items-center gap-2 text-[13px] text-[#9895A8] hover:text-[#0D0B14]"
+              disabled={submitting}
             >
               <ChevronLeft className="w-4 h-4" />
               Back
             </button>
+
             <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">
-              Select your record
+              {role === "provider" ? "Provider sign in" : "Patient sign in"}
             </p>
-            {pickerError && <p className="text-[13px] text-[#C0392B]">{pickerError}</p>}
-            {loadingPatients ? (
-              <div className="flex justify-center py-8 text-[#9895A8] gap-2">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Loading…
-              </div>
-            ) : patients.length === 0 ? (
-              <p className="text-[13px] text-[#9895A8] text-center py-8">
-                No patients on file yet. Your clinician will add you first.
-              </p>
-            ) : (
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {patients.map((p) => (
-                  <button
-                    key={p.patient_id}
-                    type="button"
-                    onClick={() => onLogin("patient", p.patient_id)}
-                    className="w-full p-4 border border-[#E8E6F0] rounded-lg text-left hover:border-[#1A9E6E] hover:bg-[#FAFAFA] transition-colors"
-                  >
-                    <p className="font-semibold text-[14px] text-[#0D0B14]">{p.name || "Patient"}</p>
-                    <p className="font-mono text-[12px] text-[#9895A8] mt-0.5">{p.patient_id}</p>
-                  </button>
-                ))}
+
+            {error && (
+              <div
+                className="flex gap-3 p-4 rounded-lg border border-[#F5C6C6] bg-[#FDF9F9]"
+                role="alert"
+              >
+                <AlertCircle className="w-5 h-5 text-[#C0392B] shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[13px] font-semibold text-[#C0392B]">Invalid credentials</p>
+                  <p className="text-[13px] text-[#6B6778] mt-1 leading-relaxed">{error}</p>
+                </div>
               </div>
             )}
-          </motion.div>
+
+            <div>
+              <label className="text-[12px] font-medium text-[#6B6778]">
+                {role === "provider" ? "Provider ID" : "Patient ID"}
+              </label>
+              <input
+                value={userId}
+                onChange={(e) => {
+                  setUserId(e.target.value)
+                  if (error) setError(null)
+                }}
+                disabled={submitting}
+                autoComplete="username"
+                placeholder={role === "provider" ? "e.g. DR-001" : "e.g. PT-001"}
+                className={`mt-1 w-full px-4 py-3 border rounded-lg font-mono text-[14px] focus:outline-none transition-colors ${inputBorder}`}
+              />
+            </div>
+
+            <div>
+              <label className="text-[12px] font-medium text-[#6B6778]">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={submitting}
+                autoComplete="current-password"
+                placeholder="Password"
+                className={`mt-1 w-full px-4 py-3 border rounded-lg text-[14px] focus:outline-none transition-colors ${inputBorder}`}
+              />
+            </div>
+
+            <p className="text-[12px] text-[#9895A8] leading-relaxed">
+              {role === "patient"
+                ? "Use the patient ID shown when your clinician created your record (e.g. PT-EUUKV4), or demo IDs PT-001–PT-003 after seeding."
+                : "Demo provider: DR-001. Password is not checked in this demo."}
+            </p>
+
+            <button
+              type="submit"
+              disabled={!userId.trim() || submitting}
+              className="w-full py-3 bg-[#5B3FD4] text-white rounded-lg text-[14px] font-medium hover:bg-[#4A32B0] disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Verifying…
+                </>
+              ) : (
+                "Sign in"
+              )}
+            </button>
+          </form>
         )}
 
-        <motion.p
-          className="text-xs text-[#C4C1D4] text-center mt-16"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4, duration: 0.5 }}
-        >
-          Powered by GIRA
-        </motion.p>
-      </div>
+        <p className="text-xs text-[#C4C1D4] text-center mt-12">Powered by GIRA</p>
+      </motion.div>
     </motion.div>
   )
 }

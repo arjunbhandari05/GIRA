@@ -19,7 +19,14 @@ def _ssl_context() -> ssl.SSLContext:
 BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 
 
-async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
+async def get_pubmed(query: str, session: aiohttp.ClientSession) -> dict[str, Any]:
+    """Async PubMed search — returns articles + _meta (never fabricates PMIDs)."""
+    meta: dict[str, Any] = {
+        "source": "pubmed",
+        "status": "ok",
+        "detail": None,
+        "query": query,
+    }
     ssl_kwargs = {"ssl": _ssl_context()}
     try:
         search_url = BASE_URL + "esearch.fcgi?" + urlencode(
@@ -34,12 +41,16 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
         )
         async with session.get(search_url, **ssl_kwargs) as resp:
             if resp.status != 200:
-                return []
+                meta["status"] = "error"
+                meta["detail"] = f"NCBI esearch HTTP {resp.status}"
+                return {"articles": [], "_meta": meta}
             search_payload = await resp.json()
 
         pmids = (search_payload.get("esearchresult") or {}).get("idlist") or []
         if not pmids:
-            return []
+            meta["status"] = "empty"
+            meta["detail"] = f"No PubMed articles for query: {query}"
+            return {"articles": [], "_meta": meta}
 
         fetch_url = BASE_URL + "efetch.fcgi?" + urlencode(
             ncbi_params(
@@ -57,7 +68,7 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
                     fetch_payload = await resp.json(content_type=None)
                     articles = _articles_from_efetch_json(pmids, fetch_payload)
                     if articles:
-                        return articles
+                        return {"articles": articles, "_meta": meta}
                 except Exception:
                     pass
 
@@ -72,12 +83,21 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
         )
         async with session.get(summary_url, **ssl_kwargs) as resp:
             if resp.status != 200:
-                return [{"pmid": pmid, "title": "", "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"} for pmid in pmids]
+                meta["status"] = "error"
+                meta["detail"] = f"NCBI esummary HTTP {resp.status}"
+                return {"articles": [], "_meta": meta}
             summary_payload = await resp.json()
 
-        return _articles_from_summary(pmids, summary_payload)
-    except Exception:
-        return []
+        articles = _articles_from_summary(pmids, summary_payload)
+        articles = [a for a in articles if (a.get("title") or "").strip()]
+        if not articles:
+            meta["status"] = "empty"
+            meta["detail"] = f"No titled articles for query: {query}"
+        return {"articles": articles, "_meta": meta}
+    except Exception as exc:  # noqa: BLE001
+        meta["status"] = "error"
+        meta["detail"] = str(exc)[:500]
+        return {"articles": [], "_meta": meta}
 
 
 def _evidence_note(gene: str, drug: str, title: str) -> str:
@@ -222,7 +242,7 @@ def fetch_pubmed(gene: str | None = None, drug: str | None = None, **_kwargs: An
 
     if not articles:
         meta["status"] = "empty"
-        meta["detail"] = "No PubMed articles for this gene+drug query."
+        meta["detail"] = f"No PubMed articles found for search: ({g}[Title/Abstract]) AND ({d}[Title/Abstract])"
     return {"articles": articles, "_meta": meta}
 
 

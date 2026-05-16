@@ -133,6 +133,26 @@ const TOOL_LABELS: Record<string, string> = {
   generate_brief: "Assembling clinician brief",
 }
 
+/** Console display: tool_id → human label */
+export const TOOL_CONSOLE_LABELS: Record<string, string> = {
+  fetch_whoop: "WHOOP biometric analytics",
+  fetch_pubmed: "PubMed literature search",
+  fetch_clinvar: "ClinVar variant classification",
+  fetch_trials: "ClinicalTrials.gov search",
+  get_snp_profile: "Genomic SNP extraction",
+  check_safety_flags: "Safety flag evaluation",
+  generate_brief: "Brief synthesis",
+  fetch_glucose: "CGM glucose trends",
+  get_patient_intake: "Patient intake load",
+  fetch_pharmgkb: "PharmGKB evidence",
+  fetch_rxnorm: "RxNorm interactions",
+}
+
+export function toolConsoleLabel(tool: string): string {
+  const human = TOOL_CONSOLE_LABELS[tool] || tool.replace(/_/g, " ")
+  return `${tool} → ${human}`
+}
+
 function formatElapsedSeconds(sec: number): string {
   const m = Math.floor(sec / 60)
   const s = (sec % 60).toFixed(1)
@@ -143,6 +163,11 @@ function formatElapsedSeconds(sec: number): string {
 function logTypeFromStep(step: TraceStep): LogLine["type"] {
   if (step.result_summary?.error || step.status === "error") return "error"
   if (step.partial || step.status === "partial") return "warning"
+  if (step.tool === "fetch_pubmed") {
+    const hits = Number(step.result_summary?.hits ?? 0)
+    const status = step.result_summary?.pubmed_status as string | undefined
+    if (hits === 0 || status === "empty") return "warning"
+  }
   if (step.tool === "generate_brief") return "success"
   if (step.tool === "check_safety_flags") {
     const flags = (step.result_summary?.flags as { severity?: string }[]) || []
@@ -192,11 +217,14 @@ function summarizeTraceResult(step: TraceStep): string {
       const pmids = (s.pmids as (string | number)[] | undefined) || []
       const gene = step.args_summary?.gene as string | undefined
       const drug = step.args_summary?.drug as string | undefined
-      const pair = gene && drug ? `${gene} + ${drug}: ` : ""
-      const tail = pmids.length
-        ? `${hits} article(s) · PMIDs ${pmids.slice(0, 4).join(", ")}`
-        : `${hits} article(s)`
-      return `${pair}${tail}`
+      const pair = gene && drug ? `${gene} + ${drug}` : "query"
+      if (hits === 0 || (s.pubmed_status as string) === "empty") {
+        return `${pair}: no articles found`
+      }
+      const first = pmids[0]
+      return first
+        ? `${pair}: ${hits} article(s) · PMID ${first}${pmids.length > 1 ? ` +${pmids.length - 1}` : ""}`
+        : `${pair}: ${hits} article(s)`
     }
     case "fetch_trials": {
       const n = Number(s.matches ?? s.hits ?? 0)
@@ -263,9 +291,16 @@ export function formatTraceStep(step: TraceStep): string {
 }
 
 export function traceStepToLogLine(step: TraceStep, elapsedSec: number): LogLine {
+  const detail = summarizeTraceResult(step)
+  const label = step.agent_wide_fallback ? undefined : toolConsoleLabel(step.tool)
+  const text =
+    step.agent_wide_fallback && typeof step.detail === "string"
+      ? step.detail
+      : detail || (step.partial ? "…" : "complete")
   return {
     timestamp: formatElapsedSeconds(elapsedSec),
-    text: formatTraceStep(step),
+    toolLabel: label,
+    text,
     type: logTypeFromStep(step),
   }
 }

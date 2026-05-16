@@ -243,3 +243,33 @@
 .font-mono-clinical {
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
+
+/* GIRA agent console scanline */
+.agent-console-scanline::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.02) 2px,
+    rgba(255, 255, 255, 0.02) 4px
+  );
+  animation: console-scan 8s linear infinite;
+}
+
+@keyframes console-scan {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(4px); }
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+.live-metric-pulse {
+  animation: live-pulse 2.2s ease-in-out infinite;
+}

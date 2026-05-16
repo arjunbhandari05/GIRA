@@ -9,6 +9,8 @@ import { wearableTrendToUi } from "@/lib/mappers"
 interface WhoopDataTabProps {
   patientId: string
   refreshKey?: number
+  /** Patient portal: live pulse + "Last synced: just now" */
+  liveMode?: boolean
 }
 
 type MetricCard = {
@@ -21,7 +23,7 @@ type MetricCard = {
   status: string
 }
 
-export default function WhoopDataTab({ patientId, refreshKey = 0 }: WhoopDataTabProps) {
+export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = false }: WhoopDataTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [whoopMissing, setWhoopMissing] = useState(false)
@@ -178,10 +180,17 @@ export default function WhoopDataTab({ patientId, refreshKey = 0 }: WhoopDataTab
   return (
     <div className="space-y-6">
       <div>
-        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Live Metrics</p>
-        <p className="text-[13px] text-[#6B6778] mt-1">
-          Data from files uploaded on Setup for this patient.
+        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">
+          {liveMode ? "Live Metrics" : "Metrics"}
         </p>
+        <p className="text-[13px] text-[#6B6778] mt-1">
+          {liveMode
+            ? "Streaming from your connected devices."
+            : "30-day summary from uploaded wearable and CGM data."}
+        </p>
+        {liveMode && !error && (
+          <p className="text-[12px] text-[#1A9E6E] mt-1 font-medium">Last synced: just now</p>
+        )}
       </div>
 
       {error && <p className="text-[13px] text-[#C0392B]">{error}</p>}
@@ -192,8 +201,11 @@ export default function WhoopDataTab({ patientId, refreshKey = 0 }: WhoopDataTab
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {metrics.map((metric, index) => {
+        {metrics.map((metric) => {
           const Icon = metric.icon
+          const pulse =
+            liveMode &&
+            (metric.label.includes("Variability") || metric.label.includes("Recovery"))
           return (
             <div key={metric.label} className="border border-[#E8E6F0] rounded-lg bg-white p-5">
               <div className="flex items-start justify-between mb-3">
@@ -204,7 +216,11 @@ export default function WhoopDataTab({ patientId, refreshKey = 0 }: WhoopDataTab
                 {metric.label}
               </p>
               <div className="flex items-baseline gap-1">
-                <span className="text-[24px] font-semibold text-[#0D0B14]">{metric.value}</span>
+                <span
+                  className={`text-[24px] font-semibold text-[#0D0B14] ${pulse ? "live-metric-pulse" : ""}`}
+                >
+                  {metric.value}
+                </span>
                 <span className="text-[13px] text-[#9895A8]">{metric.unit}</span>
               </div>
               <div className="flex items-center gap-1 mt-2 text-[12px] text-[#6B6778]">

@@ -1,9 +1,15 @@
 import type { AgentBrief, BackendPatient, PatientIntake, SafetyFlag, TraceStep } from "./types"
 
-const API_BASE =
-  typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL
-    ? process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "")
-    : "http://127.0.0.1:8000"
+function resolveApiBase(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "")
+  // Browser: same-origin proxy (next.config rewrites) avoids CORS / host mismatches
+  if (typeof window !== "undefined") {
+    return "/backend"
+  }
+  return fromEnv || "http://127.0.0.1:8000"
+}
+
+const API_BASE = resolveApiBase()
 
 const BRIEF_TIMEOUT_MS = 5 * 60 * 1000
 
@@ -15,12 +21,17 @@ async function request<T>(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
+  const hasJsonBody =
+    fetchInit.body != null &&
+    !(fetchInit.body instanceof FormData) &&
+    !(fetchInit.body instanceof URLSearchParams)
+
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...fetchInit,
       signal: controller.signal,
       headers: {
-        ...(fetchInit.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...(hasJsonBody ? { "Content-Type": "application/json" } : {}),
         ...fetchInit.headers,
       },
     })
@@ -70,8 +81,13 @@ export async function createPatient(name: string): Promise<{
   })
 }
 
-export async function getPatientAssets(patientId: string): Promise<PatientAssets & { error?: string }> {
-  return request(`/patients/${encodeURIComponent(patientId)}/assets`)
+export async function getPatientAssets(
+  patientId: string
+): Promise<PatientAssets & { error?: string }> {
+  const data = await request<PatientAssets & { error?: string }>(
+    `/patients/${encodeURIComponent(patientId)}/assets`
+  )
+  return data
 }
 
 export async function uploadPatientGenome(
