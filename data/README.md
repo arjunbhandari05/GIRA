@@ -22,7 +22,7 @@ python scripts/reset_patient_data.py --yes
 
 Use `scripts/build_whoop_data.py` / `scripts/build_glucose_data.py` as structure references.
 
-4. **`GET /agent_brief/{patient_id}?refresh=true`** — run the Nemotron agent
+4. **`GET /agent_brief/{patient_id}?refresh=true`** — run the GIRA agent
 
 ## Demo trio (regenerate)
 

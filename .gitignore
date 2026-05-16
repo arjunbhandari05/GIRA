@@ -2,7 +2,7 @@
 .env.local
 *.db
 memory.db
-glycoagent.db
+gira.db
 
 # Per-patient uploads (use Setup tab locally)
 data/whoop/*.json

@@ -7,7 +7,7 @@ Each file mimics a Libre 3 / Dexcom G7 export:
   - per-day summaries (avg / min / max / TIR / hypo events)
   - top-level summary (TIR, GMI, CV, average) tuned to match patient profile
 
-Patient profiles are tuned so Nemotron can distinguish them:
+Patient profiles are tuned so GIRA can distinguish them:
   PT-001 partial responder       — improving, no hypos, TIR ~58%
   PT-002 non-responder           — flat above range, hypos, TIR ~38%
   PT-003 well-controlled T2D     — danger is statin/clopidogrel, TIR ~72%

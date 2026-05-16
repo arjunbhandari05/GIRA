@@ -227,7 +227,7 @@ def intake_has_clinical_data(intake: dict[str, Any]) -> bool:
 
 
 def format_intake_for_llm(intake: dict[str, Any]) -> str:
-    """Compact block for Nemotron prompts."""
+    """Compact block for GIRA agent prompts."""
     if not intake_has_clinical_data(intake):
         return "No patient intake form on file."
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verify that GlycoAgent's agentic Nemotron loop produces correct, evidence-cited
+Verify that GIRA's agentic pipeline produces correct, evidence-cited
 briefs for the three demo patients.
 
 Usage:

@@ -1,4 +1,4 @@
-"""Prompt builders for the Nemotron tool-calling agent."""
+"""Prompt builders for the GIRA tool-calling agent."""
 
 GLUCOSE_RULES = """
 GLUCOSE DATA INTERPRETATION (fetch_glucose results):
@@ -19,7 +19,7 @@ CROSS-REFERENCE WITH WHOOP:
 
 
 AGENT_SYSTEM_PRELUDE = """\
-You are GlycoAgent, a tool-using clinical pharmacogenomics agent.
+You are GIRA, a tool-using clinical pharmacogenomics agent.
 
 Your job is to call tools to gather evidence, then call generate_brief to
 emit a structured clinician brief. You do not narrate. You do not chain

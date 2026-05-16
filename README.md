@@ -1,8 +1,8 @@
-# GlycoAgent
+# GIRA
 
-Pharmacogenomic clinical decision support for Type 2 diabetes. Combines 23andMe-style genotypes, clinician intake, synthetic CGM/WHOOP signals, live ClinVar/PubMed/ClinicalTrials.gov lookups, and a Nemotron tool-calling agent that produces a structured clinician brief.
+**Genomic Inference Rx Agent** — pharmacogenomic clinical decision support for Type 2 diabetes. Combines 23andMe-style genotypes, clinician intake, synthetic CGM/WHOOP signals, live ClinVar/PubMed/ClinicalTrials.gov lookups, and an agentic pipeline that produces a structured clinician brief.
 
-**Frontend:** This repo is **API-only**. The React UI was removed; integrate via your v0 app against the FastAPI routes below.
+**Frontend:** Next.js provider UI in `web/` (login, patient roster, Setup uploads, Brief, Metrics, Intake, Genome tabs).
 
 ---
 
@@ -11,7 +11,7 @@ Pharmacogenomic clinical decision support for Type 2 diabetes. Combines 23andMe-
 | Layer | Technology |
 |--------|------------|
 | API | FastAPI (`server/main.py`) |
-| Agent | Nemotron via NVIDIA NIM / OpenRouter / Ollama (`reasoning/nemotron.py`) |
+| Agent | GIRA pipeline; LLM via NVIDIA NIM Nemotron / OpenRouter / Ollama (`reasoning/nemotron.py`) |
 | Tools | Python registry (`agent/tools.py`) |
 | Storage | SQLite (`MEMORY_DB_PATH`, default `./memory.db`) |
 | Clinical APIs | ClinVar, PubMed, ClinicalTrials.gov, RxNorm (live HTTP) |
@@ -36,6 +36,9 @@ python scripts/seed_db.py
 
 uvicorn server.main:app --reload --port 8000
 # OpenAPI docs: http://127.0.0.1:8000/docs
+
+cd web && npm install && npm run dev
+# UI: http://127.0.0.1:3000  (set NEXT_PUBLIC_API_URL in web/.env.local)
 ```
 
 Verify the agent:
@@ -122,7 +125,7 @@ Deterministic checks in `reasoning/safety_flags.py` (always run before brief ass
 
 See `.env.example`. Minimum for production-like runs:
 
-- `NVIDIA_API_KEY` — Nemotron on NIM  
+- `NVIDIA_API_KEY` — LLM backend (Nemotron on NIM)  
 - `NCBI_EMAIL` — PubMed / ClinVar (optional `NCBI_API_KEY` for higher rate limits)  
 - `USE_SYNTHETIC_WHOOP=true`, `USE_SYNTHETIC_GLUCOSE=true` — demo wearable data  
 

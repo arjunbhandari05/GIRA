@@ -1,1 +1,1 @@
-"""Agent layer — Python side of the GlycoAgent OpenClaw loop."""
+"""Agent layer — Python side of the GIRA agent loop."""

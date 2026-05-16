@@ -74,7 +74,7 @@ def _clear_data_files() -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Reset all GlycoAgent patient data")
+    parser = argparse.ArgumentParser(description="Reset all GIRA patient data")
     parser.add_argument(
         "--yes", "-y", action="store_true", help="Skip confirmation prompt"
     )

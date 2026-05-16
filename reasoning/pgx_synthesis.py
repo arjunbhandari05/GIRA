@@ -16,7 +16,7 @@ def synthesize_pgx_evidence(
     citation_pmids: list[str],
 ) -> dict[str, Any] | None:
     """
-    Use Nemotron to rewrite PGx finding sentences and per-PMID inference notes
+    Use the GIRA LLM to rewrite PGx finding sentences and per-PMID inference notes
     from ClinVar + PubMed tool results only (no static PharmGKB paste).
   Returns {"snp_summary": [...], "citation_inferences": {pmid: str}} or None.
     """

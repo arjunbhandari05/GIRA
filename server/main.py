@@ -1,4 +1,4 @@
-"""GlycoAgent FastAPI backend — patients, intake, genomics, agentic briefs."""
+"""GIRA FastAPI backend — patients, intake, genomics, agentic briefs."""
 
 import asyncio
 import json
@@ -48,7 +48,7 @@ from schemas.patient_intake import (
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", override=True)
 
-app = FastAPI(title="GlycoAgent")
+app = FastAPI(title="GIRA")
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,7 +60,7 @@ app.add_middleware(
 
 
 def _db_path() -> str:
-    path = os.environ.get("MEMORY_DB_PATH", "glycoagent.db")
+    path = os.environ.get("MEMORY_DB_PATH", "memory.db")
     if not os.path.isabs(path):
         return str(ROOT / path)
     return path
@@ -241,7 +241,7 @@ async def _run_agent_brief(
     cache_only: bool = False,
     on_trace_step: Any | None = None,
 ) -> dict:
-    """Single brief pipeline: Nemotron tool loop → assemble_brief (+ PGx synthesis)."""
+    """Single brief pipeline: GIRA tool loop → assemble_brief (+ PGx synthesis)."""
     if not refresh:
         cached = _read_cached_agent_brief(patient_id)
         if cached:
@@ -324,7 +324,7 @@ async def get_agent_brief(
     cache_only: bool = False,
 ) -> dict:
     """
-    Run the Nemotron tool-calling agent for this patient. Returns the
+    Run the GIRA agent for this patient. Returns the
     structured brief plus `_trace` (every tool the model called, in order).
     Cached in agent_briefs; ?refresh=true forces a re-run; ?cache_only=true
   returns without running when nothing is cached.
@@ -357,7 +357,7 @@ async def stream_agent_brief(
     refresh: bool = False,
     cache_only: bool = False,
 ):
-    """Server-sent events: one event per Nemotron tool step, then the full brief."""
+    """Server-sent events: one event per GIRA pipeline step, then the full brief."""
 
     async def replay_cached(cached: dict):
         yield _sse_payload({"event": "start", "patient_id": patient_id, "cached": True})
@@ -452,7 +452,7 @@ async def _parse_genome_upload(file: UploadFile) -> dict:
     content = await file.read()
     tmp_path = None
     try:
-        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="glyco_upload_")
+        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="gira_upload_")
         with os.fdopen(fd, "wb") as tmp:
             tmp.write(content)
         return parse_genome(tmp_path)
@@ -548,7 +548,7 @@ async def upload_genome(file: UploadFile = File(...)) -> dict:
     patient_id = _new_upload_patient_id()
     tmp_path = None
     try:
-        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="glyco_upload_")
+        fd, tmp_path = tempfile.mkstemp(suffix=".txt", prefix="gira_upload_")
         with os.fdopen(fd, "wb") as tmp:
             tmp.write(content)
         snps = parse_genome(tmp_path)

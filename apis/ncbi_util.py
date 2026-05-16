@@ -13,8 +13,8 @@ def ncbi_params(extra: dict | None = None) -> dict:
     limit from 3 to 10 requests/second per NCBI policy.
     """
     out: dict = {
-        "email": os.getenv("NCBI_EMAIL", "glycoagent@example.com"),
-        "tool": "glycoagent",
+        "email": os.getenv("NCBI_EMAIL", "gira@example.com"),
+        "tool": "gira",
         **(extra or {}),
     }
     key = os.getenv("NCBI_API_KEY", "").strip()

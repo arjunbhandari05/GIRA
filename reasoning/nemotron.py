@@ -478,8 +478,8 @@ def _call_openrouter(messages: list[dict[str, str]]) -> str:
         headers={
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/glycoagent",
-            "X-Title": "GlycoAgent",
+            "HTTP-Referer": "https://github.com/arjunbhandari05/GIRA",
+            "X-Title": "GIRA",
         },
         json={
             "model": OPENROUTER_AGENT_MODEL,
