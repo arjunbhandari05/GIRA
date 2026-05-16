@@ -1,0 +1,277 @@
+{
+  "patient_id": "PT-001",
+  "source": "CGM",
+  "device": "Dexcom G7",
+  "units": "mg/dL",
+  "period_days": 30,
+  "generated_date": "2025-04-16",
+  "summary": {
+    "avg_glucose_mgdl": 148,
+    "std_glucose_mgdl": 28,
+    "time_in_range_pct": 54,
+    "time_above_range_pct": 38,
+    "time_below_range_pct": 8,
+    "gmi_pct": 7.1,
+    "cv_pct": 18.9,
+    "peak_glucose_mgdl": 267,
+    "trough_glucose_mgdl": 61,
+    "avg_fasting_glucose_mgdl": 126,
+    "avg_postprandial_2h_mgdl": 198
+  },
+  "daily": [
+    {
+      "date": "2025-03-17",
+      "fasting_glucose": 122,
+      "avg_glucose": 144,
+      "peak_glucose": 231,
+      "trough_glucose": 72,
+      "time_in_range_pct": 58,
+      "readings": [
+        {"time": "06:00", "glucose": 122},
+        {"time": "07:00", "glucose": 118},
+        {"time": "08:00", "glucose": 145},
+        {"time": "09:00", "glucose": 178},
+        {"time": "10:00", "glucose": 165},
+        {"time": "11:00", "glucose": 152},
+        {"time": "12:00", "glucose": 148},
+        {"time": "13:00", "glucose": 196},
+        {"time": "14:00", "glucose": 231},
+        {"time": "15:00", "glucose": 210},
+        {"time": "16:00", "glucose": 185},
+        {"time": "17:00", "glucose": 160},
+        {"time": "18:00", "glucose": 155},
+        {"time": "19:00", "glucose": 189},
+        {"time": "20:00", "glucose": 207},
+        {"time": "21:00", "glucose": 178},
+        {"time": "22:00", "glucose": 145},
+        {"time": "23:00", "glucose": 98},
+        {"time": "00:00", "glucose": 82},
+        {"time": "01:00", "glucose": 75},
+        {"time": "02:00", "glucose": 72},
+        {"time": "03:00", "glucose": 78},
+        {"time": "04:00", "glucose": 89},
+        {"time": "05:00", "glucose": 105}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "oatmeal + OJ", "carb_g": 65},
+        {"time": "12:30", "description": "sandwich + chips", "carb_g": 80},
+        {"time": "18:30", "description": "pasta dinner", "carb_g": 95}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-18",
+      "fasting_glucose": 128,
+      "avg_glucose": 151,
+      "peak_glucose": 247,
+      "trough_glucose": 78,
+      "time_in_range_pct": 50,
+      "readings": [
+        {"time": "06:00", "glucose": 128},
+        {"time": "07:00", "glucose": 122},
+        {"time": "08:00", "glucose": 155},
+        {"time": "09:00", "glucose": 194},
+        {"time": "10:00", "glucose": 217},
+        {"time": "11:00", "glucose": 200},
+        {"time": "12:00", "glucose": 181},
+        {"time": "13:00", "glucose": 165},
+        {"time": "14:00", "glucose": 157},
+        {"time": "15:00", "glucose": 149},
+        {"time": "16:00", "glucose": 142},
+        {"time": "17:00", "glucose": 160},
+        {"time": "18:00", "glucose": 175},
+        {"time": "19:00", "glucose": 247},
+        {"time": "20:00", "glucose": 231},
+        {"time": "21:00", "glucose": 198},
+        {"time": "22:00", "glucose": 162},
+        {"time": "23:00", "glucose": 118},
+        {"time": "00:00", "glucose": 95},
+        {"time": "01:00", "glucose": 85},
+        {"time": "02:00", "glucose": 78},
+        {"time": "03:00", "glucose": 80},
+        {"time": "04:00", "glucose": 90},
+        {"time": "05:00", "glucose": 108}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "bagel + cream cheese", "carb_g": 75},
+        {"time": "12:00", "description": "salad + grilled chicken", "carb_g": 35},
+        {"time": "18:00", "description": "pizza x2 slices", "carb_g": 90}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-19",
+      "fasting_glucose": 135,
+      "avg_glucose": 158,
+      "peak_glucose": 267,
+      "trough_glucose": 81,
+      "time_in_range_pct": 42,
+      "readings": [
+        {"time": "06:00", "glucose": 135},
+        {"time": "07:00", "glucose": 128},
+        {"time": "08:00", "glucose": 162},
+        {"time": "09:00", "glucose": 207},
+        {"time": "10:00", "glucose": 235},
+        {"time": "11:00", "glucose": 267},
+        {"time": "12:00", "glucose": 248},
+        {"time": "13:00", "glucose": 221},
+        {"time": "14:00", "glucose": 195},
+        {"time": "15:00", "glucose": 170},
+        {"time": "16:00", "glucose": 158},
+        {"time": "17:00", "glucose": 162},
+        {"time": "18:00", "glucose": 178},
+        {"time": "19:00", "glucose": 210},
+        {"time": "20:00", "glucose": 245},
+        {"time": "21:00", "glucose": 218},
+        {"time": "22:00", "glucose": 181},
+        {"time": "23:00", "glucose": 132},
+        {"time": "00:00", "glucose": 98},
+        {"time": "01:00", "glucose": 88},
+        {"time": "02:00", "glucose": 81},
+        {"time": "03:00", "glucose": 85},
+        {"time": "04:00", "glucose": 95},
+        {"time": "05:00", "glucose": 112}
+      ],
+      "meals": [
+        {"time": "08:00", "description": "donuts x2 + coffee", "carb_g": 85},
+        {"time": "12:30", "description": "burger + fries", "carb_g": 110},
+        {"time": "19:00", "description": "steak + mashed potato", "carb_g": 60}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-20",
+      "fasting_glucose": 119,
+      "avg_glucose": 141,
+      "peak_glucose": 218,
+      "trough_glucose": 76,
+      "time_in_range_pct": 60,
+      "readings": [
+        {"time": "06:00", "glucose": 119}, {"time": "08:00", "glucose": 140},
+        {"time": "10:00", "glucose": 195}, {"time": "12:00", "glucose": 160},
+        {"time": "14:00", "glucose": 175}, {"time": "16:00", "glucose": 218},
+        {"time": "18:00", "glucose": 198}, {"time": "20:00", "glucose": 171},
+        {"time": "22:00", "glucose": 128}, {"time": "00:00", "glucose": 88},
+        {"time": "02:00", "glucose": 76}, {"time": "04:00", "glucose": 92}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "eggs + toast", "carb_g": 40},
+        {"time": "12:00", "description": "soup + crackers", "carb_g": 50},
+        {"time": "18:30", "description": "grilled fish + veggies", "carb_g": 45}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-21",
+      "fasting_glucose": 115,
+      "avg_glucose": 137,
+      "peak_glucose": 205,
+      "trough_glucose": 71,
+      "time_in_range_pct": 65,
+      "readings": [
+        {"time": "06:00", "glucose": 115}, {"time": "08:00", "glucose": 132},
+        {"time": "10:00", "glucose": 188}, {"time": "12:00", "glucose": 155},
+        {"time": "14:00", "glucose": 145}, {"time": "16:00", "glucose": 205},
+        {"time": "18:00", "glucose": 190}, {"time": "20:00", "glucose": 162},
+        {"time": "22:00", "glucose": 119}, {"time": "00:00", "glucose": 83},
+        {"time": "02:00", "glucose": 71}, {"time": "04:00", "glucose": 88}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "greek yogurt + berries", "carb_g": 35},
+        {"time": "12:30", "description": "chicken + quinoa", "carb_g": 55},
+        {"time": "18:00", "description": "salmon + rice", "carb_g": 50}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-26",
+      "fasting_glucose": 138,
+      "avg_glucose": 163,
+      "peak_glucose": 261,
+      "trough_glucose": 65,
+      "time_in_range_pct": 38,
+      "readings": [
+        {"time": "06:00", "glucose": 138}, {"time": "08:00", "glucose": 175},
+        {"time": "10:00", "glucose": 229}, {"time": "12:00", "glucose": 261},
+        {"time": "14:00", "glucose": 241}, {"time": "16:00", "glucose": 211},
+        {"time": "18:00", "glucose": 195}, {"time": "20:00", "glucose": 230},
+        {"time": "22:00", "glucose": 185}, {"time": "00:00", "glucose": 102},
+        {"time": "02:00", "glucose": 65}, {"time": "04:00", "glucose": 90}
+      ],
+      "meals": [
+        {"time": "08:00", "description": "pancakes + syrup", "carb_g": 100},
+        {"time": "13:00", "description": "burrito large", "carb_g": 120},
+        {"time": "19:30", "description": "pasta bolognese", "carb_g": 95}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}],
+      "notes": "CGM alert: 3 hrs above 250 mg/dL"
+    },
+    {
+      "date": "2025-04-05",
+      "fasting_glucose": 120,
+      "avg_glucose": 142,
+      "peak_glucose": 212,
+      "trough_glucose": 68,
+      "time_in_range_pct": 61,
+      "readings": [
+        {"time": "06:00", "glucose": 120}, {"time": "08:00", "glucose": 138},
+        {"time": "10:00", "glucose": 188}, {"time": "12:00", "glucose": 158},
+        {"time": "14:00", "glucose": 148}, {"time": "16:00", "glucose": 212},
+        {"time": "18:00", "glucose": 196}, {"time": "20:00", "glucose": 168},
+        {"time": "22:00", "glucose": 121}, {"time": "00:00", "glucose": 85},
+        {"time": "02:00", "glucose": 68}, {"time": "04:00", "glucose": 90}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "eggs + avocado toast", "carb_g": 42},
+        {"time": "12:00", "description": "tuna salad", "carb_g": 30},
+        {"time": "18:30", "description": "chicken stir-fry + noodles", "carb_g": 70}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-04-10",
+      "fasting_glucose": 124,
+      "avg_glucose": 146,
+      "peak_glucose": 224,
+      "trough_glucose": 70,
+      "time_in_range_pct": 58,
+      "readings": [
+        {"time": "06:00", "glucose": 124}, {"time": "08:00", "glucose": 142},
+        {"time": "10:00", "glucose": 193}, {"time": "12:00", "glucose": 162},
+        {"time": "14:00", "glucose": 152}, {"time": "16:00", "glucose": 224},
+        {"time": "18:00", "glucose": 199}, {"time": "20:00", "glucose": 170},
+        {"time": "22:00", "glucose": 124}, {"time": "00:00", "glucose": 86},
+        {"time": "02:00", "glucose": 70}, {"time": "04:00", "glucose": 92}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "cereal + milk", "carb_g": 60},
+        {"time": "12:30", "description": "grilled chicken wrap", "carb_g": 55},
+        {"time": "18:30", "description": "pork + sweet potato", "carb_g": 70}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}]
+    },
+    {
+      "date": "2025-04-16",
+      "fasting_glucose": 121,
+      "avg_glucose": 144,
+      "peak_glucose": 209,
+      "trough_glucose": 73,
+      "time_in_range_pct": 60,
+      "readings": [
+        {"time": "06:00", "glucose": 121}, {"time": "08:00", "glucose": 139},
+        {"time": "10:00", "glucose": 185}, {"time": "12:00", "glucose": 157},
+        {"time": "14:00", "glucose": 147}, {"time": "16:00", "glucose": 209},
+        {"time": "18:00", "glucose": 193}, {"time": "20:00", "glucose": 167},
+        {"time": "22:00", "glucose": 118}, {"time": "00:00", "glucose": 84},
+        {"time": "02:00", "glucose": 73}, {"time": "04:00", "glucose": 91}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "oatmeal + nuts", "carb_g": 55},
+        {"time": "12:00", "description": "salad + legumes", "carb_g": 45},
+        {"time": "18:00", "description": "grilled salmon + veggies", "carb_g": 40}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 500, "time": "08:00"}, {"name": "metformin", "dose_mg": 500, "time": "20:00"}],
+      "notes": "end of period - partial response confirmed, A1C trajectory ~7.1%"
+    }
+  ]
+}

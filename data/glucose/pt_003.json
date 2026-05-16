@@ -1,0 +1,256 @@
+{
+  "patient_id": "PT-003",
+  "source": "CGM",
+  "device": "Libre 3",
+  "units": "mg/dL",
+  "period_days": 30,
+  "generated_date": "2025-04-16",
+  "summary": {
+    "avg_glucose_mgdl": 165,
+    "std_glucose_mgdl": 38,
+    "time_in_range_pct": 42,
+    "time_above_range_pct": 52,
+    "time_below_range_pct": 6,
+    "gmi_pct": 7.8,
+    "cv_pct": 23.0,
+    "peak_glucose_mgdl": 318,
+    "trough_glucose_mgdl": 59,
+    "avg_fasting_glucose_mgdl": 138,
+    "avg_postprandial_2h_mgdl": 238,
+    "notes": "Metformin 500mg QD; cardiovascular comorbidity requires careful medication safety review"
+  },
+  "daily": [
+    {
+      "date": "2025-03-17",
+      "fasting_glucose": 135,
+      "avg_glucose": 162,
+      "peak_glucose": 265,
+      "trough_glucose": 68,
+      "time_in_range_pct": 44,
+      "readings": [
+        {"time": "06:00", "glucose": 135},
+        {"time": "07:00", "glucose": 128},
+        {"time": "08:00", "glucose": 165},
+        {"time": "09:00", "glucose": 218},
+        {"time": "10:00", "glucose": 245},
+        {"time": "11:00", "glucose": 265},
+        {"time": "12:00", "glucose": 242},
+        {"time": "13:00", "glucose": 218},
+        {"time": "14:00", "glucose": 195},
+        {"time": "15:00", "glucose": 175},
+        {"time": "16:00", "glucose": 162},
+        {"time": "17:00", "glucose": 172},
+        {"time": "18:00", "glucose": 198},
+        {"time": "19:00", "glucose": 248},
+        {"time": "20:00", "glucose": 225},
+        {"time": "21:00", "glucose": 192},
+        {"time": "22:00", "glucose": 152},
+        {"time": "23:00", "glucose": 105},
+        {"time": "00:00", "glucose": 82},
+        {"time": "01:00", "glucose": 71},
+        {"time": "02:00", "glucose": 68},
+        {"time": "03:00", "glucose": 75},
+        {"time": "04:00", "glucose": 92},
+        {"time": "05:00", "glucose": 115}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "toast + eggs", "carb_g": 42},
+        {"time": "11:30", "description": "soup + crackers + fruit", "carb_g": 65},
+        {"time": "18:30", "description": "chicken + mashed potato + salad", "carb_g": 75}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ],
+      "notes": "SLCO1B1 TT - atorvastatin; CYP2C19 AA - clopidogrel poor metabolizer"
+    },
+    {
+      "date": "2025-03-18",
+      "fasting_glucose": 141,
+      "avg_glucose": 170,
+      "peak_glucose": 278,
+      "trough_glucose": 72,
+      "time_in_range_pct": 40,
+      "readings": [
+        {"time": "06:00", "glucose": 141}, {"time": "08:00", "glucose": 175},
+        {"time": "10:00", "glucose": 248}, {"time": "12:00", "glucose": 278},
+        {"time": "14:00", "glucose": 250}, {"time": "16:00", "glucose": 225},
+        {"time": "18:00", "glucose": 210}, {"time": "20:00", "glucose": 258},
+        {"time": "22:00", "glucose": 195}, {"time": "00:00", "glucose": 100},
+        {"time": "02:00", "glucose": 72}, {"time": "04:00", "glucose": 102}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "bagel + cream cheese", "carb_g": 65},
+        {"time": "12:00", "description": "sandwich + coke", "carb_g": 85},
+        {"time": "18:30", "description": "pasta + garlic bread", "carb_g": 105}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ]
+    },
+    {
+      "date": "2025-03-22",
+      "fasting_glucose": 128,
+      "avg_glucose": 155,
+      "peak_glucose": 240,
+      "trough_glucose": 65,
+      "time_in_range_pct": 48,
+      "readings": [
+        {"time": "06:00", "glucose": 128}, {"time": "08:00", "glucose": 155},
+        {"time": "10:00", "glucose": 218}, {"time": "12:00", "glucose": 240},
+        {"time": "14:00", "glucose": 215}, {"time": "16:00", "glucose": 190},
+        {"time": "18:00", "glucose": 182}, {"time": "20:00", "glucose": 218},
+        {"time": "22:00", "glucose": 170}, {"time": "00:00", "glucose": 90},
+        {"time": "02:00", "glucose": 65}, {"time": "04:00", "glucose": 95}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "oatmeal + berries", "carb_g": 50},
+        {"time": "12:30", "description": "salad + grilled shrimp", "carb_g": 30},
+        {"time": "18:00", "description": "fish tacos x2", "carb_g": 65}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ],
+      "notes": "Better dietary adherence"
+    },
+    {
+      "date": "2025-03-26",
+      "fasting_glucose": 145,
+      "avg_glucose": 174,
+      "peak_glucose": 290,
+      "trough_glucose": 71,
+      "time_in_range_pct": 38,
+      "readings": [
+        {"time": "06:00", "glucose": 145}, {"time": "08:00", "glucose": 182},
+        {"time": "10:00", "glucose": 255}, {"time": "12:00", "glucose": 290},
+        {"time": "14:00", "glucose": 260}, {"time": "16:00", "glucose": 232},
+        {"time": "18:00", "glucose": 220}, {"time": "20:00", "glucose": 265},
+        {"time": "22:00", "glucose": 201}, {"time": "00:00", "glucose": 108},
+        {"time": "02:00", "glucose": 71}, {"time": "04:00", "glucose": 108}
+      ],
+      "meals": [
+        {"time": "08:00", "description": "pancake + syrup + OJ", "carb_g": 95},
+        {"time": "13:00", "description": "burger + fries + shake", "carb_g": 155},
+        {"time": "19:00", "description": "steak + baked potato", "carb_g": 65}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ]
+    },
+    {
+      "date": "2025-03-30",
+      "fasting_glucose": 152,
+      "avg_glucose": 185,
+      "peak_glucose": 318,
+      "trough_glucose": 77,
+      "time_in_range_pct": 30,
+      "readings": [
+        {"time": "06:00", "glucose": 152}, {"time": "08:00", "glucose": 195},
+        {"time": "10:00", "glucose": 275}, {"time": "12:00", "glucose": 318},
+        {"time": "14:00", "glucose": 290}, {"time": "16:00", "glucose": 260},
+        {"time": "18:00", "glucose": 248}, {"time": "20:00", "glucose": 292},
+        {"time": "22:00", "glucose": 218}, {"time": "00:00", "glucose": 122},
+        {"time": "02:00", "glucose": 77}, {"time": "04:00", "glucose": 115}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "cereal + whole milk", "carb_g": 70},
+        {"time": "12:30", "description": "restaurant pasta + bread + wine", "carb_g": 130},
+        {"time": "19:00", "description": "pork chops + rice + dessert", "carb_g": 105}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ],
+      "notes": "Month-high glucose; CK elevation suspected same day - statin-glucose interaction possible"
+    },
+    {
+      "date": "2025-04-04",
+      "fasting_glucose": 130,
+      "avg_glucose": 158,
+      "peak_glucose": 248,
+      "trough_glucose": 68,
+      "time_in_range_pct": 50,
+      "readings": [
+        {"time": "06:00", "glucose": 130}, {"time": "08:00", "glucose": 158},
+        {"time": "10:00", "glucose": 222}, {"time": "12:00", "glucose": 248},
+        {"time": "14:00", "glucose": 225}, {"time": "16:00", "glucose": 200},
+        {"time": "18:00", "glucose": 192}, {"time": "20:00", "glucose": 225},
+        {"time": "22:00", "glucose": 175}, {"time": "00:00", "glucose": 95},
+        {"time": "02:00", "glucose": 68}, {"time": "04:00", "glucose": 98}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "greek yogurt + nuts + berries", "carb_g": 40},
+        {"time": "12:00", "description": "lentil soup + rye bread", "carb_g": 55},
+        {"time": "18:00", "description": "grilled chicken + vegetables", "carb_g": 35}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ],
+      "notes": "Best day of period - dietary adherence correlated with highest WHOOP recovery (65)"
+    },
+    {
+      "date": "2025-04-09",
+      "fasting_glucose": 140,
+      "avg_glucose": 169,
+      "peak_glucose": 270,
+      "trough_glucose": 59,
+      "time_in_range_pct": 40,
+      "readings": [
+        {"time": "06:00", "glucose": 140}, {"time": "08:00", "glucose": 172},
+        {"time": "10:00", "glucose": 242}, {"time": "12:00", "glucose": 270},
+        {"time": "14:00", "glucose": 245}, {"time": "16:00", "glucose": 218},
+        {"time": "18:00", "glucose": 208}, {"time": "20:00", "glucose": 250},
+        {"time": "22:00", "glucose": 188}, {"time": "00:00", "glucose": 98},
+        {"time": "02:00", "glucose": 59}, {"time": "04:00", "glucose": 88}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "toast + jam + OJ", "carb_g": 75},
+        {"time": "12:30", "description": "wrap + chips", "carb_g": 80},
+        {"time": "18:30", "description": "chicken + rice + sauce", "carb_g": 90}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ],
+      "notes": "Nocturnal near-hypoglycemia 59 mg/dL - alert triggered"
+    },
+    {
+      "date": "2025-04-16",
+      "fasting_glucose": 138,
+      "avg_glucose": 165,
+      "peak_glucose": 255,
+      "trough_glucose": 70,
+      "time_in_range_pct": 44,
+      "readings": [
+        {"time": "06:00", "glucose": 138}, {"time": "08:00", "glucose": 165},
+        {"time": "10:00", "glucose": 230}, {"time": "12:00", "glucose": 255},
+        {"time": "14:00", "glucose": 228}, {"time": "16:00", "glucose": 202},
+        {"time": "18:00", "glucose": 192}, {"time": "20:00", "glucose": 228},
+        {"time": "22:00", "glucose": 178}, {"time": "00:00", "glucose": 95},
+        {"time": "02:00", "glucose": 70}, {"time": "04:00", "glucose": 100}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "eggs + whole grain toast", "carb_g": 40},
+        {"time": "12:00", "description": "salad + grilled fish", "carb_g": 30},
+        {"time": "18:30", "description": "lean meat + veggies + quinoa", "carb_g": 50}
+      ],
+      "medications": [
+        {"name": "metformin", "dose_mg": 500, "time": "08:00"},
+        {"name": "atorvastatin", "dose_mg": 40, "time": "21:00"},
+        {"name": "clopidogrel", "dose_mg": 75, "time": "08:00"}
+      ],
+      "notes": "End period: GMI 7.8%; medication safety flags active - SLCO1B1 TT + CYP2C19 AA require clinician review"
+    }
+  ]
+}

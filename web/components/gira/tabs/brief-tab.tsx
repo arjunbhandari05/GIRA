@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import {
   AlertTriangle,
   Play,
@@ -25,12 +26,15 @@ import {
 } from "@/lib/api"
 import {
   genotypeForFlag,
+  logLineToAgentEntry,
   severityUi,
+  traceStepToAgentEntry,
   traceStepToLogLine,
   traceToLogLines,
 } from "@/lib/mappers"
 import AgentConsole from "../agent-console"
-import type { TraceStep } from "@/lib/types"
+import GiraLoadingPage from "../gira-loading-page"
+import type { AgentLogEntry, TraceStep } from "@/lib/types"
 
 interface BriefTabProps {
   patient: Patient
@@ -52,6 +56,24 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
   const stepQueueRef = useRef<TraceStep[]>([])
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [consoleAnimate, setConsoleAnimate] = useState(false)
+  const [showAgentOverlay, setShowAgentOverlay] = useState(false)
+  const [agentLogEntries, setAgentLogEntries] = useState<AgentLogEntry[]>([])
+  const streamAbortRef = useRef<AbortController | null>(null)
+  const autoNavigatedRef = useRef(false)
+  const [portalMounted, setPortalMounted] = useState(false)
+
+  useEffect(() => {
+    setPortalMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (!showAgentOverlay) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [showAgentOverlay])
 
   const sourceCards = [
     { id: "genome", title: "Genome", subtitle: "SNP profile", icon: Dna, accentColor: "#5B3FD4" },
@@ -140,6 +162,21 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
     setActiveCards(cards)
   }
 
+  const pushAgentLogEntry = useCallback((entry: AgentLogEntry) => {
+    setAgentLogEntries((prev) => {
+      const settled = prev.map((e) =>
+        e.status === "running"
+          ? {
+              ...e,
+              status: "complete" as const,
+              type: e.type === "error" ? ("error" as const) : ("success" as const),
+            }
+          : e
+      )
+      return [...settled, entry]
+    })
+  }, [])
+
   const flushStepQueue = useCallback(() => {
     if (stepQueueRef.current.length === 0) {
       drainTimerRef.current = null
@@ -147,6 +184,7 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
     }
     const step = stepQueueRef.current.shift()!
     const elapsed = (Date.now() - pipelineStartRef.current) / 1000
+    pushAgentLogEntry(traceStepToAgentEntry(step, elapsed))
     setLogLines((prev) => {
       const next = [...prev, traceStepToLogLine(step, elapsed)]
       if (step.tool === "check_safety_flags") {
@@ -160,7 +198,7 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
     })
     activateCardForTool(step.tool)
     drainTimerRef.current = setTimeout(flushStepQueue, 420)
-  }, [])
+  }, [pushAgentLogEntry])
 
   const enqueueTraceStep = useCallback(
     (step: TraceStep) => {
@@ -188,7 +226,38 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
     flushStepQueue()
   }, [flushStepQueue])
 
+  const handleLoadingComplete = useCallback(() => {
+    if (autoNavigatedRef.current) return
+    autoNavigatedRef.current = true
+    setShowAgentOverlay(false)
+    onBriefComplete?.()
+  }, [onBriefComplete])
+
+  useEffect(() => {
+    if (!showAgentOverlay || pipelineRunning || !pipelineComplete || !brief || brief.error) {
+      return
+    }
+    if (autoNavigatedRef.current) return
+
+    const timer = setTimeout(() => {
+      handleLoadingComplete()
+    }, 1200)
+
+    return () => clearTimeout(timer)
+  }, [
+    showAgentOverlay,
+    pipelineRunning,
+    pipelineComplete,
+    brief,
+    handleLoadingComplete,
+  ])
+
   const runPipeline = async () => {
+    streamAbortRef.current?.abort()
+    streamAbortRef.current = new AbortController()
+    autoNavigatedRef.current = false
+    setShowAgentOverlay(true)
+    setAgentLogEntries([])
     setPipelineRunning(true)
     setPipelineComplete(false)
     setPipelineError(null)
@@ -199,7 +268,9 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
       clearTimeout(drainTimerRef.current)
       drainTimerRef.current = null
     }
-    setLogLines([{ timestamp: "00:00.0", text: "Loading PGx safety gates…", type: "info" }])
+    const bootLine: LogLine = { timestamp: "00:00.0", text: "Loading PGx safety gates…", type: "info" }
+    setLogLines([bootLine])
+    pushAgentLogEntry(logLineToAgentEntry(bootLine, "boot"))
     setActiveCards([])
     setBrief(null)
     setPipelineComplete(false)
@@ -215,35 +286,32 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
               .map((f) => f.gene)
               .filter(Boolean)
               .join(", ")}${flags.length > 3 ? "…" : ""}`
-      setLogLines((prev) => [
-        ...prev,
-        {
-          timestamp: traceStepToLogLine(
-            { tool: "check_safety_flags" },
-            (Date.now() - pipelineStartRef.current) / 1000
-          ).timestamp,
-          text: flagLine,
-          type: flags.some((f) => (f.severity || "").toUpperCase() === "CRITICAL")
+      const elapsed0 = (Date.now() - pipelineStartRef.current) / 1000
+      const flagLog: LogLine = {
+        timestamp: traceStepToLogLine({ tool: "check_safety_flags" }, elapsed0).timestamp,
+        toolLabel: "check_safety_flags → Safety flag evaluation",
+        text: flagLine,
+        type: flags.some((f) => (f.severity || "").toUpperCase() === "CRITICAL")
+          ? "warning"
+          : flags.length
             ? "warning"
-            : flags.length
-              ? "warning"
-              : "success",
-        },
-        {
-          timestamp: traceStepToLogLine(
-            { tool: "generate_brief" },
-            (Date.now() - pipelineStartRef.current) / 1000
-          ).timestamp,
-          text: "Running tools in parallel — lines appear as each finishes",
-          type: "info",
-        },
-      ])
+            : "success",
+      }
+      const streamLog: LogLine = {
+        timestamp: traceStepToLogLine({ tool: "generate_brief" }, elapsed0).timestamp,
+        text: "Streaming agent trace — lines appear as each tool finishes",
+        type: "info",
+      }
+      setLogLines((prev) => [...prev, flagLog, streamLog])
+      pushAgentLogEntry(logLineToAgentEntry(flagLog, "flags"))
+      pushAgentLogEntry(logLineToAgentEntry(streamLog, "stream"))
 
       let completed = false
       let streamError: string | null = null
       let sawGenerateBrief = false
       await streamAgentBrief(patient.id, {
         refresh: true,
+        signal: streamAbortRef.current.signal,
         onStep: (step) => {
           if (step.tool === "generate_brief" && step.status !== "partial") {
             sawGenerateBrief = true
@@ -259,18 +327,17 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
           setBrief(result)
           const finish = () => {
             const elapsed = (Date.now() - pipelineStartRef.current) / 1000
-            setLogLines((prev) => [
-              ...prev,
-              {
-                timestamp: traceStepToLogLine({ tool: "generate_brief" }, elapsed).timestamp,
-                text: "Brief ready for review",
-                type: "success",
-              },
-            ])
+            const doneLine: LogLine = {
+              timestamp: traceStepToLogLine({ tool: "generate_brief" }, elapsed).timestamp,
+              toolLabel: "generate_brief → Brief synthesis",
+              text: "Brief ready for review",
+              type: "success",
+            }
+            setLogLines((prev) => [...prev, doneLine])
+            pushAgentLogEntry(logLineToAgentEntry(doneLine, "done"))
             if (result._trace?.length) activateCardsFromTrace(result._trace)
             setPipelineComplete(true)
             setConsoleAnimate(false)
-            onBriefComplete?.()
           }
           if (stepQueueRef.current.length > 0 || drainTimerRef.current) {
             const waitDrain = () => {
@@ -298,7 +365,6 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
           setBrief(result)
           setPipelineComplete(true)
           if (result._trace?.length) activateCardsFromTrace(result._trace)
-          onBriefComplete?.()
           completed = true
         }
       }
@@ -312,15 +378,26 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
           activateCardsFromTrace(result._trace)
         }
         setPipelineComplete(true)
-        onBriefComplete?.()
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Pipeline failed"
+      if (msg.includes("abort")) {
+        setShowAgentOverlay(false)
+        return
+      }
       setPipelineError(msg)
-      setLogLines((prev) => [...prev, { timestamp: "—", text: msg, type: "error" }])
+      const errLine: LogLine = { timestamp: "—", text: msg, type: "error" }
+      setLogLines((prev) => [...prev, errLine])
+      pushAgentLogEntry(logLineToAgentEntry(errLine, "error"))
     } finally {
       setPipelineRunning(false)
     }
+  }
+
+  const handleLoadingCancel = () => {
+    streamAbortRef.current?.abort()
+    setPipelineRunning(false)
+    setShowAgentOverlay(false)
   }
 
   useEffect(() => {
@@ -355,8 +432,26 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
     displayFlags[0]?.description ||
     patient.statusText
 
+  const loadingScreen =
+    showAgentOverlay && portalMounted ? (
+      <GiraLoadingPage
+        patientName={patient.name}
+        patientId={patient.id}
+        entries={agentLogEntries}
+        isRunning={pipelineRunning}
+        isComplete={pipelineComplete && !pipelineRunning}
+        onComplete={handleLoadingComplete}
+        onCancel={pipelineRunning ? handleLoadingCancel : undefined}
+      />
+    ) : null
+
   return (
-    <div className="space-y-6">
+    <>
+      {loadingScreen && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-[#FAFAFC]">{loadingScreen}</div>,
+        document.body
+      )}
+      <div className={showAgentOverlay ? "hidden" : "space-y-6"} aria-hidden={showAgentOverlay}>
       {patient.status === "flag" && (
         <div className="border-l-[3px] border-l-[#C0392B] border border-[#E8E6F0] rounded-md bg-white p-4 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-[#C0392B] shrink-0 mt-0.5" />
@@ -463,6 +558,7 @@ export default function BriefTab({ patient, onNavigateIntake, onBriefComplete }:
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }

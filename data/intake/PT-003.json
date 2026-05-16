@@ -1,0 +1,153 @@
+{
+  "patient_id": "PT-003",
+  "demographics": {
+    "age": 68,
+    "sex": "male",
+    "weight_kg": 84,
+    "height_cm": 175,
+    "bmi": 27.4,
+    "ethnicity": "European/White",
+    "occupation": "retired engineer"
+  },
+  "medications": [
+    {
+      "name": "metformin",
+      "dose_mg": 500,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Type 2 Diabetes",
+      "start_date": "2022-08-01",
+      "prescriber": "Dr. Chen"
+    },
+    {
+      "name": "atorvastatin",
+      "dose_mg": 40,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Dyslipidemia - cardiovascular risk reduction",
+      "start_date": "2020-02-01",
+      "prescriber": "Dr. Chen",
+      "notes": "⚠️ SLCO1B1 TT - HIGH MYOPATHY RISK. Consider dose reduction to 20mg or switch to rosuvastatin/pravastatin."
+    },
+    {
+      "name": "clopidogrel",
+      "dose_mg": 75,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Post-NSTEMI antiplatelet therapy",
+      "start_date": "2023-01-15",
+      "prescriber": "Dr. Kim (Cardiology)",
+      "notes": "⚠️ CYP2C19 AA - POOR METABOLIZER. Clopidogrel requires CYP2C19 activation to active thiolactone. Therapeutic failure risk. Consider prasugrel or ticagrelor per cardiology."
+    },
+    {
+      "name": "ramipril",
+      "dose_mg": 5,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Post-MI cardiac remodeling + BP",
+      "start_date": "2023-01-15",
+      "prescriber": "Dr. Kim (Cardiology)"
+    },
+    {
+      "name": "aspirin",
+      "dose_mg": 81,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Dual antiplatelet (with clopidogrel) post-NSTEMI",
+      "start_date": "2023-01-15",
+      "prescriber": "Dr. Kim (Cardiology)"
+    }
+  ],
+  "vitals": {
+    "bp_systolic_mmhg": 138,
+    "bp_diastolic_mmhg": 86,
+    "hr_bpm": 76,
+    "rr_per_min": 17,
+    "temp_c": 36.9,
+    "spo2_pct": 95,
+    "weight_kg": 84,
+    "date_measured": "2025-04-14"
+  },
+  "labs": {
+    "hba1c_pct": 7.8,
+    "fasting_glucose_mgdl": 142,
+    "creatinine_mgdl": 1.05,
+    "egfr_ml_min": 74,
+    "alt_ul": 35,
+    "ast_ul": 31,
+    "ldl_mgdl": 88,
+    "hdl_mgdl": 45,
+    "triglycerides_mgdl": 198,
+    "ck_ul": 485,
+    "ck_reference": "normal <200",
+    "ck_note": "Elevated CK - possible statin-induced myopathy (SLCO1B1 TT)",
+    "platelet_reactivity_unit": "242",
+    "platelet_reactivity_note": "High on-treatment platelet reactivity - consistent with CYP2C19 AA clopidogrel non-response",
+    "date_drawn": "2025-04-08"
+  },
+  "goals": [
+    "Prevent recurrent cardiac event",
+    "Reduce HbA1c to <7.5%",
+    "Manage muscle pain/weakness from statin safely",
+    "Ensure adequate antiplatelet protection",
+    "Maintain independence and quality of life"
+  ],
+  "sideEffects": [
+    {
+      "medication": "atorvastatin",
+      "effect": "bilateral proximal myalgia, fatigue, occasional weakness",
+      "severity": "moderate-severe",
+      "onset": "2024-10-01",
+      "status": "active",
+      "notes": "SLCO1B1 TT genotype predicts 5-fold increased statin myopathy risk. Patient self-discontinued on 2025-04-06 due to pain."
+    },
+    {
+      "medication": "clopidogrel",
+      "effect": "no reported side effects, but therapeutic concern",
+      "severity": "none reported",
+      "onset": "N/A",
+      "status": "monitoring",
+      "notes": "CYP2C19 AA = poor metabolizer. Patient has had clopidogrel 2+ years post-NSTEMI. Platelet reactivity units elevated (242) confirming poor response."
+    }
+  ],
+  "lifestyle": {
+    "diet": "moderate - Mediterranean-influenced but inconsistent",
+    "physical_activity": "light - walking 3x/week, gardening; limited by myalgia",
+    "alcohol_drinks_per_week": 4,
+    "smoking_status": "former, quit 2010",
+    "sleep_hours_per_night": 6.1,
+    "sleep_quality": "fair - disrupted by muscle discomfort",
+    "stress_level": "low-moderate",
+    "caffeine_cups_per_day": 2
+  },
+  "comorbidities": [
+    "Type 2 Diabetes Mellitus (Dx 2022)",
+    "Non-ST Elevation Myocardial Infarction (2023-01-10)",
+    "Hypertension (Dx 2019)",
+    "Dyslipidemia (Dx 2019)",
+    "Statin-associated myopathy (suspected, confirmed by CK elevation + SLCO1B1 TT)"
+  ],
+  "familyHistory": [
+    "Father: MI age 60, died age 71",
+    "Mother: Hypertension, T2D",
+    "Brother: CAD with stent (age 64)"
+  ],
+  "snp_profile": {
+    "TCF7L2_rs7903146": "CT",
+    "SLC22A1_rs622342": "GA",
+    "CYP2C19_rs4244285": "AA",
+    "SLCO1B1_rs4149056": "TT",
+    "VKORC1_rs9923231": "GA",
+    "pharmacogenomic_summary": "SLCO1B1 TT: highest-risk statin myopathy genotype - OATP1B1 transporter loss-of-function leads to 5x increased statin plasma exposure. Atorvastatin 40mg is unsafe at this variant. CYP2C19 AA: poor metabolizer - clopidogrel requires CYP2C19 bioactivation; therapeutic failure documented by platelet reactivity. VKORC1 GA: intermediate warfarin sensitivity (relevant if anticoagulation considered). SLC22A1 GA: intermediate metformin efficacy."
+  },
+  "clinicianNotes": "PT-003 represents a critical pharmacogenomic safety case. Two concurrent genotype-drug mismatches: (1) SLCO1B1 TT on atorvastatin 40mg - CK is 485 U/L (>2x ULN), patient has symptomatic myalgia and self-discontinued. Dose should be reduced to ≤20mg or switched to pravastatin/fluvastatin (not OATP1B1 substrates) or rosuvastatin at reduced dose. (2) CYP2C19 AA on clopidogrel post-NSTEMI - platelet reactivity 242 PRU confirms inadequate antiplatelet effect. Cardiology consultation urgent - consider switch to prasugrel (avoid if prior stroke/TIA) or ticagrelor. WHOOP (avg recovery 45, HRV 31.7) and CGM (TIR 42%, avg 165 mg/dL) suggest moderate metabolic burden. Diabetes management secondary to resolving drug safety issues.",
+  "intake_date": "2025-04-14",
+  "next_visit": "2025-04-28",
+  "alert_flags": [
+    "⚠️ SAFETY_CRITICAL: SLCO1B1 TT + atorvastatin 40mg → statin myopathy. CK 485 U/L. Dose reduction or switch required.",
+    "⚠️ SAFETY_CRITICAL: CYP2C19 AA + clopidogrel post-MI → therapeutic failure. PRU 242. Cardiology consult urgent.",
+    "⚠️ MEDICATION_SELF_DISCONTINUED: atorvastatin withheld by patient on 2025-04-06",
+    "MONITORING: eGFR 74 - annual renal function check",
+    "MONITORING: LDL 88 mg/dL - at target on statin; ensure continuity of lipid lowering after statin switch"
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "patient_id": "PT-002",
+  "demographics": {
+    "age": 61,
+    "sex": "female",
+    "weight_kg": 108,
+    "height_cm": 163,
+    "bmi": 40.6,
+    "ethnicity": "African American",
+    "occupation": "teacher"
+  },
+  "medications": [
+    {
+      "name": "metformin",
+      "dose_mg": 1000,
+      "frequency": "BID",
+      "route": "oral",
+      "indication": "Type 2 Diabetes",
+      "start_date": "2021-03-01",
+      "prescriber": "Dr. Williams",
+      "notes": "Maximum dose, inadequate response per CGM. SLC22A1 AA predicts reduced hepatic uptake."
+    },
+    {
+      "name": "lisinopril",
+      "dose_mg": 20,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Hypertension + nephroprotection",
+      "start_date": "2020-09-01",
+      "prescriber": "Dr. Williams"
+    },
+    {
+      "name": "omeprazole",
+      "dose_mg": 20,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "GERD",
+      "start_date": "2022-01-15",
+      "prescriber": "Dr. Williams"
+    }
+  ],
+  "vitals": {
+    "bp_systolic_mmhg": 148,
+    "bp_diastolic_mmhg": 92,
+    "hr_bpm": 88,
+    "rr_per_min": 19,
+    "temp_c": 37.0,
+    "spo2_pct": 94,
+    "weight_kg": 108,
+    "date_measured": "2025-04-08"
+  },
+  "labs": {
+    "hba1c_pct": 9.2,
+    "fasting_glucose_mgdl": 195,
+    "creatinine_mgdl": 1.18,
+    "egfr_ml_min": 58,
+    "alt_ul": 42,
+    "ast_ul": 38,
+    "ldl_mgdl": 145,
+    "hdl_mgdl": 34,
+    "triglycerides_mgdl": 285,
+    "c_peptide_ngml": 1.1,
+    "insulin_uIU_ml": 22,
+    "homa_ir": 10.5,
+    "date_drawn": "2025-04-01"
+  },
+  "goals": [
+    "Reduce HbA1c to below 8% as a first step",
+    "Reduce fasting glucose to <150 mg/dL",
+    "Weight loss - target 10-15 kg",
+    "Avoid hypoglycemia episodes",
+    "Improve energy and sleep (currently poor)"
+  ],
+  "sideEffects": [
+    {
+      "medication": "metformin",
+      "effect": "persistent GI distress - diarrhea and nausea",
+      "severity": "moderate",
+      "onset": "ongoing",
+      "status": "active",
+      "notes": "Patient has requested dosage review. SLC22A1 AA may explain both GI side effects and therapeutic failure."
+    }
+  ],
+  "lifestyle": {
+    "diet": "high-carbohydrate, frequent restaurant meals, low vegetable intake",
+    "physical_activity": "sedentary - teaching job, <5000 steps/day",
+    "alcohol_drinks_per_week": 1,
+    "smoking_status": "former, quit 2015",
+    "sleep_hours_per_night": 5.4,
+    "sleep_quality": "poor - frequent nocturia and nocturnal awakenings",
+    "stress_level": "high",
+    "caffeine_cups_per_day": 3
+  },
+  "comorbidities": [
+    "Type 2 Diabetes Mellitus (Dx 2021) - poorly controlled",
+    "Hypertension (Dx 2020)",
+    "Obesity Class III (BMI 40.6)",
+    "Dyslipidemia",
+    "GERD",
+    "Chronic kidney disease Stage 3a (eGFR 58)"
+  ],
+  "familyHistory": [
+    "Mother: Type 2 Diabetes - insulin dependent",
+    "Father: Hypertension, CAD, died age 68",
+    "Sibling x2: Type 2 Diabetes"
+  ],
+  "snp_profile": {
+    "TCF7L2_rs7903146": "TT",
+    "SLC22A1_rs622342": "AA",
+    "CYP2C19_rs4244285": "GA",
+    "SLCO1B1_rs4149056": "TC",
+    "VKORC1_rs9923231": "GG",
+    "pharmacogenomic_summary": "TCF7L2 TT: highest genetic risk allele for T2D, impaired incretin/GLP-1 response - GLP-1RA may be particularly beneficial. SLC22A1 AA: reduced hepatic metformin transporter - explains clinical non-response. CYP2C19 GA: intermediate metabolizer (clinically minor for current regimen)."
+  },
+  "clinicianNotes": "Patient has been on maximum-dose metformin for 4 years with inadequate glycemic control (HbA1c 9.2%). WHOOP data (avg recovery 31/100, avg HRV 22.8 ms) and CGM (TIR 18%, avg glucose 211 mg/dL) both confirm severe metabolic burden. Genomic profile explains failure: SLC22A1 AA reduces metformin hepatic uptake, TCF7L2 TT predicts impaired GLP-1 receptor response. Strong recommendation to switch primary agent. GLP-1 RA (semaglutide) is pharmacogenomically aligned and addresses obesity, CV risk, and renal concerns. CKD stage 3a eGFR 58 - SGLT-2i use with caution (threshold ~45 for empagliflozin). Refer to endocrinology.",
+  "intake_date": "2025-04-08",
+  "next_visit": "2025-05-08",
+  "alert_flags": [
+    "MEDICATION_NON_RESPONSE: metformin - supported by SLC22A1 AA genotype and 4-year TIR <20%",
+    "CGM_CRITICAL: peak glucose 398 mg/dL on 2025-04-09",
+    "CKD_MONITORING: eGFR 58 - SGLT-2i threshold, monitor creatinine quarterly",
+    "WHOOP_ALERT: avg recovery score 31 - severely impaired physiologic recovery"
+  ]
+}

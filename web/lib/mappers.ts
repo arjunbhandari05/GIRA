@@ -1,5 +1,6 @@
 import type {
   AgentBrief,
+  AgentLogEntry,
   BackendPatient,
   LogLine,
   MetricTrend,
@@ -315,6 +316,53 @@ export function formatTraceStep(step: TraceStep): string {
   const dur = traceDurationSuffix(step)
   if (detail) return `${prefix} — ${detail}${dur}`
   return dur ? `${prefix}${dur}` : `${prefix}…`
+}
+
+/** Detail text for loading-page agent log (matches console body). */
+export function traceStepDetailForLog(step: TraceStep): string {
+  if (step.agent_wide_fallback && typeof step.detail === "string") {
+    return step.detail
+  }
+  const summary = summarizeTraceResult(step)
+  if (step.reason && summary) return `${step.reason} — ${summary}`
+  if (step.reason) return step.reason
+  if (summary) return summary
+  if (step.partial) return "…"
+  return "complete"
+}
+
+export function traceStepToAgentEntry(step: TraceStep, elapsedSec: number): AgentLogEntry {
+  const label = TOOL_LABELS[step.tool] || step.tool.replace(/_/g, " ")
+  const isPartial = Boolean(step.partial || step.status === "partial")
+  const isError = step.status === "error" || Boolean(step.result_summary?.error)
+  return {
+    id: `trace-${step.step ?? 0}-${step.tool}-${elapsedSec}`,
+    timestamp: formatElapsedSeconds(elapsedSec),
+    tool: step.tool,
+    label,
+    detail: traceStepDetailForLog(step),
+    status: isError ? "error" : isPartial ? "running" : "complete",
+    type: logTypeFromStep(step),
+    agentRole: step.agent_role,
+    reason: step.reason,
+  }
+}
+
+export function logLineToAgentEntry(line: LogLine, id: string): AgentLogEntry {
+  const toolMatch = line.toolLabel?.match(/^([\w]+)\s*→/)
+  const tool = toolMatch?.[1] || "system"
+  const label =
+    line.toolLabel?.split(" → ")[1]?.trim() ||
+    (tool === "system" ? "GIRA" : tool.replace(/_/g, " "))
+  return {
+    id,
+    timestamp: line.timestamp,
+    tool,
+    label,
+    detail: line.text,
+    status: "complete",
+    type: line.type,
+  }
 }
 
 export function traceStepToLogLine(step: TraceStep, elapsedSec: number): LogLine {

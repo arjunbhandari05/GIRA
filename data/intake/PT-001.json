@@ -1,0 +1,109 @@
+{
+  "patient_id": "PT-001",
+  "demographics": {
+    "age": 52,
+    "sex": "male",
+    "weight_kg": 92,
+    "height_cm": 178,
+    "bmi": 29.1,
+    "ethnicity": "South Asian",
+    "occupation": "software engineer"
+  },
+  "medications": [
+    {
+      "name": "metformin",
+      "dose_mg": 500,
+      "frequency": "BID",
+      "route": "oral",
+      "indication": "Type 2 Diabetes",
+      "start_date": "2023-06-01",
+      "prescriber": "Dr. Patel"
+    },
+    {
+      "name": "lisinopril",
+      "dose_mg": 10,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Hypertension",
+      "start_date": "2022-11-15",
+      "prescriber": "Dr. Patel"
+    },
+    {
+      "name": "aspirin",
+      "dose_mg": 81,
+      "frequency": "QD",
+      "route": "oral",
+      "indication": "Cardiovascular prophylaxis",
+      "start_date": "2022-11-15",
+      "prescriber": "Dr. Patel"
+    }
+  ],
+  "vitals": {
+    "bp_systolic_mmhg": 132,
+    "bp_diastolic_mmhg": 84,
+    "hr_bpm": 72,
+    "rr_per_min": 16,
+    "temp_c": 36.8,
+    "spo2_pct": 97,
+    "weight_kg": 92,
+    "date_measured": "2025-04-10"
+  },
+  "labs": {
+    "hba1c_pct": 7.1,
+    "fasting_glucose_mgdl": 128,
+    "creatinine_mgdl": 0.98,
+    "egfr_ml_min": 82,
+    "alt_ul": 28,
+    "ast_ul": 24,
+    "ldl_mgdl": 118,
+    "hdl_mgdl": 42,
+    "triglycerides_mgdl": 165,
+    "date_drawn": "2025-04-01"
+  },
+  "goals": [
+    "Reduce HbA1c to below 7%",
+    "Lose 5-8 kg body weight",
+    "Lower blood pressure to <130/80",
+    "Improve sleep quality and energy"
+  ],
+  "sideEffects": [
+    {
+      "medication": "metformin",
+      "effect": "mild GI discomfort",
+      "severity": "mild",
+      "onset": "first 2 weeks of therapy",
+      "status": "resolved"
+    }
+  ],
+  "lifestyle": {
+    "diet": "South Asian traditional - moderate carb, rice-heavy",
+    "physical_activity": "sedentary work, 2x/week gym, occasional hiking",
+    "alcohol_drinks_per_week": 3,
+    "smoking_status": "never",
+    "sleep_hours_per_night": 6.8,
+    "stress_level": "moderate",
+    "caffeine_cups_per_day": 2
+  },
+  "comorbidities": [
+    "Type 2 Diabetes Mellitus (Dx 2023)",
+    "Hypertension (Dx 2022)",
+    "Dyslipidemia (Dx 2022)",
+    "Overweight (BMI 29.1)"
+  ],
+  "familyHistory": [
+    "Father: Type 2 Diabetes, CAD",
+    "Mother: Hypertension",
+    "Sibling: Prediabetes"
+  ],
+  "snp_profile": {
+    "TCF7L2_rs7903146": "CT",
+    "SLC22A1_rs622342": "GA",
+    "CYP2C19_rs4244285": "GA",
+    "SLCO1B1_rs4149056": "TC",
+    "VKORC1_rs9923231": "GA",
+    "pharmacogenomic_summary": "Intermediate metformin transporter function (SLC22A1 GA - heterozygous). Intermediate CYP2C19 metabolizer. Low SLCO1B1 statin risk."
+  },
+  "clinicianNotes": "Patient reports partial glycemic improvement on metformin 500mg BID. HbA1c has decreased from 8.2% (dx) to 7.1% over 18 months but remains above target. Considers dose titration or add-on therapy. WHOOP data confirms adequate recovery and sleep (avg 58/100). CGM shows 54% TIR - room for improvement. South Asian background suggests higher cardiovascular risk at lower BMI. Consider adding SGLT-2 inhibitor for cardiovascular and renal benefit. Recheck labs in 3 months.",
+  "intake_date": "2025-04-10",
+  "next_visit": "2025-07-10"
+}

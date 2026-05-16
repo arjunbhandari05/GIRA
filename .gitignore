@@ -4,11 +4,23 @@
 memory.db
 gira.db
 
-# Per-patient uploads (use Setup tab locally)
+# Per-patient uploads (Setup tab / ad-hoc) — demo trio PT-001..003 is tracked
 data/whoop/*.json
+!data/whoop/pt_001.json
+!data/whoop/pt_002.json
+!data/whoop/pt_003.json
 data/glucose/*.json
+!data/glucose/pt_001.json
+!data/glucose/pt_002.json
+!data/glucose/pt_003.json
 data/intake/*.json
+!data/intake/PT-001.json
+!data/intake/PT-002.json
+!data/intake/PT-003.json
 data/genomes/*.txt
+!data/genomes/pt_001.txt
+!data/genomes/pt_002.txt
+!data/genomes/pt_003.txt
 !data/**/.gitkeep
 *.db-journal
 __pycache__/

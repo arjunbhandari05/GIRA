@@ -1,0 +1,224 @@
+{
+  "patient_id": "PT-002",
+  "source": "CGM",
+  "device": "Dexcom G7",
+  "units": "mg/dL",
+  "period_days": 30,
+  "generated_date": "2025-04-16",
+  "summary": {
+    "avg_glucose_mgdl": 211,
+    "std_glucose_mgdl": 57,
+    "time_in_range_pct": 18,
+    "time_above_range_pct": 78,
+    "time_below_range_pct": 4,
+    "gmi_pct": 9.0,
+    "cv_pct": 27.0,
+    "peak_glucose_mgdl": 398,
+    "trough_glucose_mgdl": 58,
+    "avg_fasting_glucose_mgdl": 178,
+    "avg_postprandial_2h_mgdl": 289,
+    "notes": "SLC22A1 AA - metformin reduced uptake; TCF7L2 TT - impaired incretin response"
+  },
+  "daily": [
+    {
+      "date": "2025-03-17",
+      "fasting_glucose": 175,
+      "avg_glucose": 205,
+      "peak_glucose": 312,
+      "trough_glucose": 72,
+      "time_in_range_pct": 20,
+      "readings": [
+        {"time": "06:00", "glucose": 175},
+        {"time": "07:00", "glucose": 168},
+        {"time": "08:00", "glucose": 215},
+        {"time": "09:00", "glucose": 278},
+        {"time": "10:00", "glucose": 312},
+        {"time": "11:00", "glucose": 290},
+        {"time": "12:00", "glucose": 265},
+        {"time": "13:00", "glucose": 245},
+        {"time": "14:00", "glucose": 230},
+        {"time": "15:00", "glucose": 218},
+        {"time": "16:00", "glucose": 225},
+        {"time": "17:00", "glucose": 240},
+        {"time": "18:00", "glucose": 260},
+        {"time": "19:00", "glucose": 308},
+        {"time": "20:00", "glucose": 285},
+        {"time": "21:00", "glucose": 251},
+        {"time": "22:00", "glucose": 210},
+        {"time": "23:00", "glucose": 162},
+        {"time": "00:00", "glucose": 115},
+        {"time": "01:00", "glucose": 88},
+        {"time": "02:00", "glucose": 72},
+        {"time": "03:00", "glucose": 79},
+        {"time": "04:00", "glucose": 98},
+        {"time": "05:00", "glucose": 135}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "white rice + eggs", "carb_g": 70},
+        {"time": "13:00", "description": "large pasta + bread", "carb_g": 130},
+        {"time": "18:30", "description": "takeout fried rice + spring rolls", "carb_g": 145}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}],
+      "notes": "On max dose metformin - no meaningful response due to SLC22A1 AA genotype"
+    },
+    {
+      "date": "2025-03-18",
+      "fasting_glucose": 185,
+      "avg_glucose": 218,
+      "peak_glucose": 340,
+      "trough_glucose": 78,
+      "time_in_range_pct": 15,
+      "readings": [
+        {"time": "06:00", "glucose": 185}, {"time": "08:00", "glucose": 232},
+        {"time": "10:00", "glucose": 310}, {"time": "12:00", "glucose": 340},
+        {"time": "14:00", "glucose": 295}, {"time": "16:00", "glucose": 265},
+        {"time": "18:00", "glucose": 255}, {"time": "20:00", "glucose": 310},
+        {"time": "22:00", "glucose": 240}, {"time": "00:00", "glucose": 128},
+        {"time": "02:00", "glucose": 78}, {"time": "04:00", "glucose": 115}
+      ],
+      "meals": [
+        {"time": "08:00", "description": "cereal + OJ + muffin", "carb_g": 115},
+        {"time": "12:00", "description": "sandwich + soda + chips", "carb_g": 120},
+        {"time": "19:00", "description": "pizza x4 + dessert", "carb_g": 185}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-19",
+      "fasting_glucose": 192,
+      "avg_glucose": 231,
+      "peak_glucose": 370,
+      "trough_glucose": 82,
+      "time_in_range_pct": 12,
+      "readings": [
+        {"time": "06:00", "glucose": 192}, {"time": "08:00", "glucose": 248},
+        {"time": "10:00", "glucose": 320}, {"time": "12:00", "glucose": 370},
+        {"time": "14:00", "glucose": 341}, {"time": "16:00", "glucose": 308},
+        {"time": "18:00", "glucose": 290}, {"time": "20:00", "glucose": 335},
+        {"time": "22:00", "glucose": 260}, {"time": "00:00", "glucose": 145},
+        {"time": "02:00", "glucose": 82}, {"time": "04:00", "glucose": 130}
+      ],
+      "meals": [
+        {"time": "07:00", "description": "donuts x3 + OJ", "carb_g": 120},
+        {"time": "13:30", "description": "large burrito + chips + soda", "carb_g": 155},
+        {"time": "19:00", "description": "pasta + garlic bread + dessert", "carb_g": 145}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}],
+      "notes": "Clinically significant hyperglycemia - peak 370 mg/dL"
+    },
+    {
+      "date": "2025-03-21",
+      "fasting_glucose": 179,
+      "avg_glucose": 209,
+      "peak_glucose": 315,
+      "trough_glucose": 70,
+      "time_in_range_pct": 19,
+      "readings": [
+        {"time": "06:00", "glucose": 179}, {"time": "08:00", "glucose": 225},
+        {"time": "10:00", "glucose": 295}, {"time": "12:00", "glucose": 315},
+        {"time": "14:00", "glucose": 288}, {"time": "16:00", "glucose": 260},
+        {"time": "18:00", "glucose": 248}, {"time": "20:00", "glucose": 295},
+        {"time": "22:00", "glucose": 231}, {"time": "00:00", "glucose": 118},
+        {"time": "02:00", "glucose": 70}, {"time": "04:00", "glucose": 108}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "eggs + white toast + OJ", "carb_g": 65},
+        {"time": "12:30", "description": "fast food burger + fries + soda", "carb_g": 140},
+        {"time": "18:30", "description": "Chinese takeout + white rice", "carb_g": 130}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}]
+    },
+    {
+      "date": "2025-03-26",
+      "fasting_glucose": 182,
+      "avg_glucose": 219,
+      "peak_glucose": 355,
+      "trough_glucose": 80,
+      "time_in_range_pct": 14,
+      "readings": [
+        {"time": "06:00", "glucose": 182}, {"time": "08:00", "glucose": 238},
+        {"time": "10:00", "glucose": 315}, {"time": "12:00", "glucose": 355},
+        {"time": "14:00", "glucose": 325}, {"time": "16:00", "glucose": 290},
+        {"time": "18:00", "glucose": 272}, {"time": "20:00", "glucose": 318},
+        {"time": "22:00", "glucose": 248}, {"time": "00:00", "glucose": 135},
+        {"time": "02:00", "glucose": 80}, {"time": "04:00", "glucose": 125}
+      ],
+      "meals": [
+        {"time": "08:00", "description": "waffles + syrup + bacon", "carb_g": 95},
+        {"time": "13:00", "description": "large sub + chips + lemonade", "carb_g": 140},
+        {"time": "19:00", "description": "pasta primavera + bread", "carb_g": 125}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}],
+      "notes": "5th consecutive week >300 mg/dL peaks - non-response pattern clear"
+    },
+    {
+      "date": "2025-04-05",
+      "fasting_glucose": 171,
+      "avg_glucose": 203,
+      "peak_glucose": 298,
+      "trough_glucose": 65,
+      "time_in_range_pct": 22,
+      "readings": [
+        {"time": "06:00", "glucose": 171}, {"time": "08:00", "glucose": 218},
+        {"time": "10:00", "glucose": 285}, {"time": "12:00", "glucose": 298},
+        {"time": "14:00", "glucose": 271}, {"time": "16:00", "glucose": 248},
+        {"time": "18:00", "glucose": 238}, {"time": "20:00", "glucose": 280},
+        {"time": "22:00", "glucose": 218}, {"time": "00:00", "glucose": 112},
+        {"time": "02:00", "glucose": 65}, {"time": "04:00", "glucose": 102}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "oatmeal + banana + honey", "carb_g": 80},
+        {"time": "12:30", "description": "sandwich + apple + crackers", "carb_g": 90},
+        {"time": "18:30", "description": "grilled chicken + rice + veggies", "carb_g": 80}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}],
+      "notes": "Slightly better day, still well above target range"
+    },
+    {
+      "date": "2025-04-09",
+      "fasting_glucose": 201,
+      "avg_glucose": 241,
+      "peak_glucose": 398,
+      "trough_glucose": 58,
+      "time_in_range_pct": 8,
+      "readings": [
+        {"time": "06:00", "glucose": 201}, {"time": "08:00", "glucose": 261},
+        {"time": "10:00", "glucose": 348}, {"time": "12:00", "glucose": 398},
+        {"time": "14:00", "glucose": 365}, {"time": "16:00", "glucose": 330},
+        {"time": "18:00", "glucose": 310}, {"time": "20:00", "glucose": 352},
+        {"time": "22:00", "glucose": 272}, {"time": "00:00", "glucose": 150},
+        {"time": "02:00", "glucose": 58}, {"time": "04:00", "glucose": 112}
+      ],
+      "meals": [
+        {"time": "08:00", "description": "large breakfast buffet", "carb_g": 160},
+        {"time": "13:00", "description": "restaurant meal - high carb", "carb_g": 165},
+        {"time": "20:00", "description": "dessert + soda", "carb_g": 90}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}],
+      "notes": "MONTH PEAK 398 mg/dL - emergency alert; near-hypoglycemic trough 58 mg/dL same day"
+    },
+    {
+      "date": "2025-04-16",
+      "fasting_glucose": 176,
+      "avg_glucose": 208,
+      "peak_glucose": 305,
+      "trough_glucose": 71,
+      "time_in_range_pct": 19,
+      "readings": [
+        {"time": "06:00", "glucose": 176}, {"time": "08:00", "glucose": 225},
+        {"time": "10:00", "glucose": 292}, {"time": "12:00", "glucose": 305},
+        {"time": "14:00", "glucose": 278}, {"time": "16:00", "glucose": 255},
+        {"time": "18:00", "glucose": 248}, {"time": "20:00", "glucose": 290},
+        {"time": "22:00", "glucose": 223}, {"time": "00:00", "glucose": 119},
+        {"time": "02:00", "glucose": 71}, {"time": "04:00", "glucose": 110}
+      ],
+      "meals": [
+        {"time": "07:30", "description": "toast + OJ + yogurt", "carb_g": 70},
+        {"time": "12:30", "description": "rice bowl + beans", "carb_g": 105},
+        {"time": "18:30", "description": "chicken + pasta", "carb_g": 95}
+      ],
+      "medications": [{"name": "metformin", "dose_mg": 1000, "time": "08:00"}, {"name": "metformin", "dose_mg": 1000, "time": "20:00"}],
+      "notes": "End period: persistent non-response; GMI ~9.0% - strong case for therapy escalation (GLP-1 or SGLT-2)"
+    }
+  ]
+}

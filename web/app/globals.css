@@ -244,6 +244,35 @@
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
 
+/* GIRA loading overlay (matches provider UI palette) */
+:root {
+  --gira-bg: #FAFAFC;
+  --gira-surface: #FFFFFF;
+  --gira-surface-hover: rgba(91, 63, 212, 0.04);
+  --gira-surface-active: rgba(91, 63, 212, 0.07);
+  --gira-border: #E8E6F0;
+  --gira-text: #0D0B14;
+  --gira-text-secondary: #6B6778;
+  --gira-muted: #9895A8;
+  --gira-purple: #5B3FD4;
+  --gira-purple-hover: #4A32B0;
+  --gira-accent: #1A9E6E;
+}
+
+@theme inline {
+  --color-gira-bg: var(--gira-bg);
+  --color-gira-surface: var(--gira-surface);
+  --color-gira-surface-hover: var(--gira-surface-hover);
+  --color-gira-surface-active: var(--gira-surface-active);
+  --color-gira-border: var(--gira-border);
+  --color-gira-text: var(--gira-text);
+  --color-gira-text-secondary: var(--gira-text-secondary);
+  --color-gira-muted: var(--gira-muted);
+  --color-gira-purple: var(--gira-purple);
+  --color-gira-purple-hover: var(--gira-purple-hover);
+  --color-gira-accent: var(--gira-accent);
+}
+
 /* GIRA agent console scanline */
 .agent-console-scanline::after {
   content: '';

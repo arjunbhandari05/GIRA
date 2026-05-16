@@ -177,6 +177,19 @@ export interface LogLine {
   toolLabel?: string
 }
 
+/** Timeline entry for the full-screen GIRA loading / agent activity panel. */
+export interface AgentLogEntry {
+  id: string
+  timestamp: string
+  tool: string
+  label: string
+  detail: string
+  status: "running" | "complete" | "error"
+  type: "info" | "success" | "warning" | "error"
+  agentRole?: string
+  reason?: string
+}
+
 export interface UiRecommendation {
   title: string
   type: "discontinue" | "start" | "consider"

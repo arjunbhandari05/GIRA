@@ -2,6 +2,8 @@
 
 Synthetic patient files only. **Do not store real PHI here.**
 
+The **PT-001 / PT-002 / PT-003** demo files under `genomes/`, `intake/`, `glucose/`, and `whoop/` are committed so clones work without regenerating. Other patient ids stay local (gitignored).
+
 ## Fresh start
 
 ```bash
