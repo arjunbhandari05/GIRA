@@ -7,14 +7,82 @@ interface GiraLogoProps {
   showTagline?: boolean
 }
 
+function traceCapsule(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  length: number,
+  diameter: number
+) {
+  const r = diameter / 2
+  const x0 = cx - length / 2 + r
+  const x1 = cx + length / 2 - r
+  ctx.beginPath()
+  ctx.moveTo(x0, cy - r)
+  ctx.lineTo(x1, cy - r)
+  ctx.arc(x1, cy, r, -Math.PI / 2, Math.PI / 2, false)
+  ctx.lineTo(x0, cy + r)
+  ctx.arc(x0, cy, r, Math.PI / 2, -Math.PI / 2, false)
+  ctx.closePath()
+}
+
+type HelixPoint = {
+  sx: number
+  sy: number
+  depth: number
+  strand: 1 | 2
+  t: number
+}
+
+/** Build 3D double-helix points, rotated around the pill's long axis. */
+function buildHelixPoints(
+  cx: number,
+  cy: number,
+  helixLength: number,
+  radius: number,
+  turns: number,
+  steps: number,
+  spin: number
+): HelixPoint[] {
+  const points: HelixPoint[] = []
+  const x0 = cx - helixLength / 2
+
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1)
+    const ax = x0 + t * helixLength
+    const theta = t * turns * Math.PI * 2 + spin
+
+    for (const strand of [1, 2] as const) {
+      const phase = strand === 1 ? 0 : Math.PI
+      const y = radius * Math.cos(theta + phase)
+      const z = radius * Math.sin(theta + phase)
+
+      // Rotate around long axis (X) so helix spins in view
+      const ry = y
+      const rz = z
+
+      points.push({
+        sx: ax,
+        sy: cy + ry,
+        depth: rz,
+        strand,
+        t,
+      })
+    }
+  }
+  return points
+}
+
 export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const phaseRef = useRef(0)
+  const spinRef = useRef(0)
   const [textStage, setTextStage] = useState(0)
 
   const scale = size === "lg" ? 1 : size === "md" ? 0.7 : 0.5
-  const W = 80 * scale
-  const H = 160 * scale
+  const canvasSize = 132 * scale
+  const pillLength = 112 * scale
+  const pillDiameter = 42 * scale
+  const pillAngle = -1.05
 
   useEffect(() => {
     const t1 = setTimeout(() => setTextStage(1), 400)
@@ -34,164 +102,220 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
     if (!ctx) return
 
     const dpr = window.devicePixelRatio || 1
-    canvas.width = W * dpr
-    canvas.height = H * dpr
+    canvas.width = canvasSize * dpr
+    canvas.height = canvasSize * dpr
     ctx.scale(dpr, dpr)
+
+    const cx = canvasSize / 2
+    const cy = canvasSize / 2
+
+    const PILL = {
+      left: "#F2F1F5",
+      leftEdge: "#E4E2EA",
+      right: "#E8E6F0",
+      rightEdge: "#D8D5E0",
+      seam: "rgba(152, 149, 168, 0.55)",
+      shadow: "rgba(13, 11, 20, 0.06)",
+    }
+
+    const DNA = {
+      purple: "#5B3FD4",
+      purpleLight: "#8B74E8",
+      green: "#1A9E6E",
+      greenLight: "#34C48E",
+      rung: "rgba(91, 63, 212, 0.35)",
+    }
 
     let animationId: number
 
-    const draw = () => {
-      ctx.clearRect(0, 0, W, H)
+    const drawPill = () => {
+      // Right half
+      ctx.save()
+      traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
+      ctx.clip()
+      ctx.fillStyle = PILL.right
+      ctx.fillRect(cx, cy - pillDiameter, canvasSize, pillDiameter * 2)
+      const rightShade = ctx.createLinearGradient(cx, cy, cx + pillLength / 2, cy)
+      rightShade.addColorStop(0, "rgba(255,255,255,0)")
+      rightShade.addColorStop(1, PILL.shadow)
+      ctx.fillStyle = rightShade
+      ctx.fillRect(cx, cy - pillDiameter / 2, pillLength / 2, pillDiameter)
+      ctx.restore()
 
-      const PAD = 4 * scale
-      const R = W / 2
+      // Left half
+      ctx.save()
+      traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
+      ctx.clip()
+      ctx.fillStyle = PILL.left
+      ctx.fillRect(0, cy - pillDiameter, cx, pillDiameter * 2)
+      const leftShade = ctx.createLinearGradient(cx - pillLength / 2, cy, cx, cy)
+      leftShade.addColorStop(0, PILL.shadow)
+      leftShade.addColorStop(1, "rgba(255,255,255,0.35)")
+      ctx.fillStyle = leftShade
+      ctx.fillRect(cx - pillLength / 2, cy - pillDiameter / 2, pillLength / 2, pillDiameter)
+      ctx.restore()
 
-      // Draw pill outline with gradient
-      const gradient = ctx.createLinearGradient(0, 0, W, H)
-      gradient.addColorStop(0, "#5B3FD4")
-      gradient.addColorStop(1, "#1A9E6E")
+      // Gloss
+      ctx.save()
+      traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
+      ctx.clip()
+      const gloss = ctx.createRadialGradient(
+        cx - pillLength * 0.2,
+        cy - pillDiameter * 0.3,
+        0,
+        cx - pillLength * 0.2,
+        cy - pillDiameter * 0.3,
+        pillDiameter * 0.85
+      )
+      gloss.addColorStop(0, "rgba(255,255,255,0.55)")
+      gloss.addColorStop(1, "rgba(255,255,255,0)")
+      ctx.fillStyle = gloss
+      ctx.fillRect(cx - pillLength / 2, cy - pillDiameter / 2, pillLength, pillDiameter)
+      ctx.restore()
 
-      // Pill shape path
-      ctx.beginPath()
-      ctx.moveTo(W - PAD, R)
-      ctx.arcTo(W - PAD, PAD, W - R, PAD, R - PAD)
-      ctx.lineTo(R, PAD)
-      ctx.arcTo(PAD, PAD, PAD, R, R - PAD)
-      ctx.lineTo(PAD, H - R)
-      ctx.arcTo(PAD, H - PAD, R, H - PAD, R - PAD)
-      ctx.lineTo(W - R, H - PAD)
-      ctx.arcTo(W - PAD, H - PAD, W - PAD, H - R, R - PAD)
-      ctx.closePath()
-      ctx.strokeStyle = gradient
-      ctx.lineWidth = 2 * scale
+      // Seam
+      ctx.save()
+      traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
+      ctx.clip()
+      ctx.fillStyle = PILL.seam
+      ctx.fillRect(cx - 0.8 * scale, cy - pillDiameter / 2, 1.6 * scale, pillDiameter)
+      ctx.restore()
+
+      // Brand border: purple → green along capsule length
+      traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
+      const borderGrad = ctx.createLinearGradient(
+        cx - pillLength / 2,
+        cy - pillDiameter / 2,
+        cx + pillLength / 2,
+        cy + pillDiameter / 2
+      )
+      borderGrad.addColorStop(0, DNA.purple)
+      borderGrad.addColorStop(0.48, DNA.purpleLight)
+      borderGrad.addColorStop(0.52, DNA.greenLight)
+      borderGrad.addColorStop(1, DNA.green)
+      ctx.strokeStyle = borderGrad
+      ctx.lineWidth = 2.2 * scale
+      ctx.lineCap = "round"
+      ctx.lineJoin = "round"
       ctx.stroke()
 
-      // Fill entire pill with subtle purple tint
-      ctx.beginPath()
-      ctx.moveTo(W - PAD, R)
-      ctx.arcTo(W - PAD, PAD, W - R, PAD, R - PAD)
-      ctx.lineTo(R, PAD)
-      ctx.arcTo(PAD, PAD, PAD, R, R - PAD)
-      ctx.lineTo(PAD, H - R)
-      ctx.arcTo(PAD, H - PAD, R, H - PAD, R - PAD)
-      ctx.lineTo(W - R, H - PAD)
-      ctx.arcTo(W - PAD, H - PAD, W - PAD, H - R, R - PAD)
-      ctx.closePath()
-      ctx.fillStyle = "rgba(91, 63, 212, 0.04)"
-      ctx.fill()
+      // Inner highlight edge for depth
+      traceCapsule(ctx, cx, cy, pillLength - 1.2 * scale, pillDiameter - 1.2 * scale)
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"
+      ctx.lineWidth = 0.8 * scale
+      ctx.stroke()
+    }
 
-      // DNA Helix - centered in full pill
-      const amplitude = W / 2 - 12 * scale
-      const cycles = 2.5
-      const samples = 60
-      const centerX = W / 2  // True center
+    const drawHelix = () => {
+      const helixLength = pillLength - pillDiameter - 8 * scale
+      const radius = pillDiameter * 0.3
+      const steps = 72
+      const turns = 2.4
+      const spin = spinRef.current
 
-      interface Point {
-        x: number
-        y: number
-        z: number
-        strand: number
+      const pts = buildHelixPoints(cx, cy, helixLength, radius, turns, steps, spin)
+
+      // Base-pair rungs (depth-sorted)
+      const rungs: { a: HelixPoint; b: HelixPoint; depth: number }[] = []
+      for (let i = 0; i < steps; i += 2) {
+        const a = pts[i * 2]
+        const b = pts[i * 2 + 1]
+        if (!a || !b) continue
+        rungs.push({ a, b, depth: (a.depth + b.depth) / 2 })
       }
+      rungs.sort((x, y) => x.depth - y.depth)
 
-      const points: Point[] = []
-
-      for (let i = 0; i < samples; i++) {
-        const frac = i / (samples - 1)
-        const y = H - 20 * scale - (H - 40 * scale) * frac
-        const angle = frac * cycles * Math.PI * 2 + phaseRef.current
-
-        const x1 = centerX + Math.sin(angle) * amplitude
-        const z1 = Math.cos(angle)
-        points.push({ x: x1, y, z: z1, strand: 1 })
-
-        const x2 = centerX + Math.sin(angle + Math.PI) * amplitude
-        const z2 = Math.cos(angle + Math.PI)
-        points.push({ x: x2, y, z: z2, strand: 2 })
-      }
-
-      // Draw rungs
-      for (let i = 0; i < samples; i += 5) {
-        const p1 = points[i * 2]
-        const p2 = points[i * 2 + 1]
-        if (!p1 || !p2) continue
-        const depth = (p1.z + 1) / 2
-
+      for (const { a, b, depth } of rungs) {
+        const alpha = 0.25 + 0.45 * ((depth / radius + 1) / 2)
         ctx.beginPath()
-        ctx.moveTo(p1.x, p1.y)
-        ctx.lineTo(p2.x, p2.y)
-        ctx.strokeStyle = `rgba(91, 63, 212, ${0.1 + 0.25 * depth})`
-        ctx.lineWidth = (1 + depth) * scale
+        ctx.moveTo(a.sx, a.sy)
+        ctx.lineTo(b.sx, b.sy)
+        const rungGrad = ctx.createLinearGradient(a.sx, a.sy, b.sx, b.sy)
+        rungGrad.addColorStop(0, DNA.purple)
+        rungGrad.addColorStop(1, DNA.green)
+        ctx.strokeStyle = rungGrad
+        ctx.globalAlpha = alpha
+        ctx.lineWidth = 1.4 * scale
+        ctx.lineCap = "round"
         ctx.stroke()
       }
 
-      // Draw strands
-      ;[1, 2].forEach((strand) => {
-        const color = strand === 1 ? "#5B3FD4" : "#1A9E6E"
-        const strandPoints = points.filter((p) => p.strand === strand)
+      // Strands — back then front
+      const drawStrand = (strand: 1 | 2, front: boolean) => {
+        const color = strand === 1 ? DNA.purple : DNA.green
+        const light = strand === 1 ? DNA.purpleLight : DNA.greenLight
+        const strandPts = pts.filter((p) => p.strand === strand && (front ? p.depth >= 0 : p.depth < 0))
+        if (strandPts.length < 2) return
 
-        // Back half
         ctx.beginPath()
-        let started = false
-        strandPoints.forEach((p) => {
-          if (p.z < 0) {
-            if (!started) {
-              ctx.moveTo(p.x, p.y)
-              started = true
-            } else {
-              ctx.lineTo(p.x, p.y)
-            }
-          }
-        })
+        ctx.moveTo(strandPts[0].sx, strandPts[0].sy)
+        for (let i = 1; i < strandPts.length; i++) {
+          ctx.lineTo(strandPts[i].sx, strandPts[i].sy)
+        }
+
         ctx.strokeStyle = color
-        ctx.lineWidth = 1.5 * scale
-        ctx.globalAlpha = 0.35
+        ctx.lineWidth = (front ? 2.6 : 1.6) * scale
+        ctx.globalAlpha = front ? 1 : 0.35
+        ctx.lineCap = "round"
+        ctx.lineJoin = "round"
         ctx.stroke()
 
-        // Front half
-        ctx.beginPath()
-        started = false
-        strandPoints.forEach((p) => {
-          if (p.z >= 0) {
-            if (!started) {
-              ctx.moveTo(p.x, p.y)
-              started = true
-            } else {
-              ctx.lineTo(p.x, p.y)
-            }
-          }
-        })
-        ctx.strokeStyle = color
-        ctx.lineWidth = 2 * scale
-        ctx.globalAlpha = 1
-        ctx.stroke()
-      })
+        if (front) {
+          ctx.strokeStyle = light
+          ctx.lineWidth = 1 * scale
+          ctx.globalAlpha = 0.45
+          ctx.stroke()
+        }
+      }
 
-      // Draw nodes
-      for (let i = 0; i < samples; i += 5) {
-        ;[0, 1].forEach((offset) => {
-          const p = points[i * 2 + offset]
-          if (!p) return
-          const depth = (p.z + 1) / 2
-          const color = p.strand === 1 ? "#5B3FD4" : "#1A9E6E"
-          const radius = (2 + 2 * depth) * scale
+      drawStrand(1, false)
+      drawStrand(2, false)
+      drawStrand(1, true)
+      drawStrand(2, true)
 
+      // Backbone nodes on front strand
+      for (let i = 0; i < steps; i += 3) {
+        for (const strand of [1, 2] as const) {
+          const p = pts[i * 2 + (strand === 1 ? 0 : 1)]
+          if (!p || p.depth < 0) continue
+          const color = strand === 1 ? DNA.purpleLight : DNA.greenLight
+          const r = 2.2 * scale
           ctx.beginPath()
-          ctx.arc(p.x, p.y, radius, 0, Math.PI * 2)
+          ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2)
           ctx.fillStyle = color
-          ctx.globalAlpha = 0.4 + 0.6 * depth
+          ctx.globalAlpha = 0.85
           ctx.fill()
-        })
+        }
       }
 
       ctx.globalAlpha = 1
+    }
 
-      phaseRef.current += 0.03
+    const draw = () => {
+      ctx.clearRect(0, 0, canvasSize, canvasSize)
+
+      ctx.save()
+      ctx.translate(cx, cy)
+      ctx.rotate(pillAngle)
+      ctx.translate(-cx, -cy)
+
+      drawPill()
+
+      ctx.save()
+      traceCapsule(ctx, cx, cy, pillLength, pillDiameter)
+      ctx.clip()
+      drawHelix()
+      ctx.restore()
+
+      ctx.restore()
+
+      spinRef.current += 0.045
       animationId = requestAnimationFrame(draw)
     }
 
     draw()
     return () => cancelAnimationFrame(animationId)
-  }, [W, H, scale])
+  }, [canvasSize, pillLength, pillDiameter, pillAngle, scale])
 
   const fontSize = {
     gira: size === "lg" ? 48 : size === "md" ? 32 : 24,
@@ -202,13 +326,14 @@ export default function GiraLogo({ size = "lg", showTagline = true }: GiraLogoPr
 
   return (
     <div className="flex flex-col items-center gap-4">
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-2.5">
         <canvas
           ref={canvasRef}
-          width={W}
-          height={H}
-          style={{ width: W, height: H }}
+          width={canvasSize}
+          height={canvasSize}
+          style={{ width: canvasSize, height: canvasSize }}
           className="flex-shrink-0"
+          aria-hidden
         />
         <div className="flex flex-col">
           <div className="flex items-baseline gap-1">
