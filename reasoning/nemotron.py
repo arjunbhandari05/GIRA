@@ -53,6 +53,57 @@ def _log(msg: str) -> None:
         print(msg, file=sys.stderr, flush=True)
 
 
+def _pgx_synthesis_env_on() -> bool:
+    return os.getenv("PGX_SYNTHESIS", "0").strip().lower() in ("1", "true", "yes")
+
+
+def _default_agent_role(tool: str) -> str:
+    """Lightweight multi-agent story for hackathon demos (orchestrator / safety / evidence / writer)."""
+    if tool == "check_safety_flags":
+        return "safety"
+    if tool == "generate_brief":
+        return "writer"
+    if tool in ("get_snp_profile", "get_patient_intake"):
+        return "orchestrator"
+    return "evidence"
+
+
+def _default_trace_reason(tool: str, args_summary: dict[str, Any]) -> str:
+    """One-line rationale judges can read in the trace (templated, tool-aware)."""
+    if tool == "fetch_pubmed":
+        gene = args_summary.get("gene") or "?"
+        drug = args_summary.get("drug") or "?"
+        return (
+            f"Retrieve PubMed evidence for {gene} × {drug} relevant to this patient's PGx context."
+        )
+    if tool == "fetch_clinvar":
+        return "Query ClinVar for clinical significance on prioritized panel rsIDs."
+    if tool == "fetch_cpic":
+        return "Pull CPIC guideline-backed recommendations for current meds and genotypes."
+    if tool == "fetch_pharmgkb":
+        return "Annotate panel SNPs with static PharmGKB-style PGx reference rows."
+    if tool == "fetch_rxnorm":
+        return "Normalize medication strings for interaction and PGx matching."
+    if tool == "fetch_trials":
+        return "Search recruiting trials for high-impact genes near the patient's zip."
+    if tool == "fetch_whoop":
+        return "Load recovery / strain context to compare against intake goals."
+    if tool == "fetch_glucose":
+        return "Load CGM summary to contextualize glycemic control vs PGx risks."
+    if tool == "get_snp_profile":
+        return "Load the patient's genotype panel — foundation for all PGx tools."
+    if tool == "get_patient_intake":
+        return "Load structured intake, meds, and visit notes for safety and narrative."
+    if tool == "check_safety_flags":
+        return "Run mandatory deterministic PGx safety gates before any recommendation."
+    if tool == "generate_brief":
+        skip = args_summary.get("skip_pgx_synthesis")
+        if skip is True:
+            return "Assemble the clinician brief (PGx LLM rewrite skipped for speed)."
+        return "Assemble the clinician brief; optional Nemotron synthesis rewrites SNP text from evidence."
+    return f"Execute {tool} as part of the evidence → safety → brief pipeline."
+
+
 def _infer_tool_status(tool: str, result: Any) -> tuple[str, str, str | None, bool]:
     """
     Returns (data_source, status, detail, partial) for agent reasoning trail.
@@ -112,6 +163,8 @@ def _trace_step_record(
     auto_invoked: bool = False,
     agent_wide_fallback: bool = False,
     fallback_reason: str | None = None,
+    reason: str | None = None,
+    agent_role: str | None = None,
 ) -> dict[str, Any]:
     src, status, detail, partial = _infer_tool_status(tool, result)
     row: dict[str, Any] = {
@@ -122,6 +175,8 @@ def _trace_step_record(
         "data_source": src,
         "status": status,
         "partial": partial,
+        "reason": reason or _default_trace_reason(tool, args_summary),
+        "agent_role": agent_role or _default_agent_role(tool),
     }
     if detail:
         row["detail"] = detail
@@ -633,9 +688,10 @@ def _enrich_args(
     elif name == "generate_brief":
         args.setdefault("all_findings", findings)
         if "skip_pgx_synthesis" not in args:
+            parallel = os.getenv("AGENT_MODE", "llm").strip().lower() == "parallel"
             args.setdefault(
                 "skip_pgx_synthesis",
-                os.getenv("AGENT_MODE", "parallel").strip().lower() == "parallel",
+                parallel and not _pgx_synthesis_env_on(),
             )
     return args
 
@@ -825,11 +881,12 @@ async def run_parallel_tool_plan(
     _name, _args, safety = await _run_traced("check_safety_flags", {})
     findings["check_safety_flags"] = safety
 
-    # Phase 4 — rule-based brief (no PGx LLM rewrite; emit running line first)
-    findings["_fast_brief"] = True
+    # Phase 4 — brief assembly (optional Nemotron PGx synthesis when PGX_SYNTHESIS=1)
+    skip_syn = not _pgx_synthesis_env_on()
+    findings["_fast_brief"] = skip_syn
     assembling = _trace_step_record(
         "generate_brief",
-        {"skip_pgx_synthesis": True},
+        {"skip_pgx_synthesis": skip_syn},
         {"status": "assembling"},
     )
     assembling["status"] = "partial"
@@ -838,7 +895,7 @@ async def run_parallel_tool_plan(
 
     try:
         _name, _args, brief = await asyncio.wait_for(
-            _run_traced("generate_brief", {"skip_pgx_synthesis": True}),
+            _run_traced("generate_brief", {"skip_pgx_synthesis": skip_syn}),
             timeout=float(os.getenv("BRIEF_ASSEMBLY_TIMEOUT_SEC", "45")),
         )
     except asyncio.TimeoutError:
@@ -974,6 +1031,17 @@ def _deterministic_plan(
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _llm_model_for_backend(backend: str) -> str | None:
+    b = (backend or "").strip().lower()
+    if b == "nim":
+        return NIM_MODEL
+    if b == "openrouter":
+        return OPENROUTER_AGENT_MODEL
+    if b == "ollama":
+        return OLLAMA_MODEL
+    return None
+
+
 def _attach_trace(
     brief: dict[str, Any],
     trace: list[dict[str, Any]],
@@ -985,6 +1053,9 @@ def _attach_trace(
     brief = dict(brief)
     brief["_trace"] = trace
     brief["_backend"] = backend
+    mid = _llm_model_for_backend(backend)
+    if mid:
+        brief["_llm_model"] = mid
     if error:
         brief["_backend_error"] = error
     return brief

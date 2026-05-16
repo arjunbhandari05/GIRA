@@ -65,7 +65,7 @@ python scripts/test_agent.py PT-002
 | `GET` | `/brief/{id}` | Alias of `/agent_brief` |
 | `DELETE` | `/agent_brief/{id}` | Clear cached brief |
 
-**Agent brief response** (JSON): `safety_flags`, `snp_summary`, `recommendation`, `glucose_insight`, `wearable_insight`, `trial_matches`, `citations`, `intake_summary`, `patient_summary`, `_trace`, `_backend`.
+**Agent brief response** (JSON): `safety_flags`, `snp_summary`, `recommendation`, `glucose_insight`, `wearable_insight`, `trial_matches`, `citations`, `intake_summary`, `patient_summary`, `_trace` (each step may include `reason` and `agent_role`), `_backend`, optional `_llm_model` (when Nemotron ran on NIM/OpenRouter/Ollama).
 
 Long-running: allow **2–5 minutes** for first `GET /agent_brief` (no cache).
 
@@ -98,6 +98,28 @@ GIRA/
 
 ---
 
+## Hack-a-Claw / Nemotron track
+
+GIRA is positioned as an **autonomous clinical PGx agent**: Nemotron (or deterministic fallback) drives a **tool loop** with live APIs. Defaults in `.env.example` match submission guidance:
+
+- `AGENT_MODE=llm` — Nemotron-visible ReAct loop (`run_with_tools` in `reasoning/nemotron.py`).
+- `PGX_SYNTHESIS=1` — optional **writer** pass over SNP text + citations from ClinVar/PubMed only (`reasoning/pgx_synthesis.py`).
+
+**Demo patient:** `PT-003` — SLCO1B1 + CYP2C19 safety, CPIC, and citations (see `scripts/demo_hackathon.sh`).
+
+**Devpost-ready copy:** `DEVPOST.md`.
+
+### Agent modes (appendix)
+
+| `AGENT_MODE` | Behavior |
+|---------------|----------|
+| `llm` (default) | Nemotron issues JSON `tool_call` / `done` turns; tools execute server-side; trace shows model-driven order when LLM is reachable. |
+| `parallel` | Phased asyncio **script** of the same tools — optimized for latency and NCBI rate limits. With `PGX_SYNTHESIS=1`, brief assembly can still invoke the Nemotron **synthesis** pass unless `skip_pgx_synthesis` is forced. |
+
+**Models:** NIM `NIM_MODEL` (default `nvidia/llama-3.3-nemotron-super-49b-v1.5`) or OpenRouter `OPENROUTER_MODEL` / `OPENROUTER_AGENT_MODEL` (default Super 120B free slug). Override `OPENROUTER_AGENT_MODEL` if the default is throttled.
+
+---
+
 ## Demo patients
 
 | ID | Story |
@@ -125,6 +147,7 @@ Deterministic checks in `reasoning/safety_flags.py` (always run before brief ass
 
 See `.env.example`. Minimum for production-like runs:
 
+- `AGENT_MODE=llm` and `PGX_SYNTHESIS=1` — Nemotron-visible loop + optional synthesis (defaults in `.env.example`)
 - `NVIDIA_API_KEY` — LLM backend (Nemotron on NIM)  
 - `NCBI_EMAIL` — PubMed / ClinVar (optional `NCBI_API_KEY` for higher rate limits)  
 - `USE_SYNTHETIC_WHOOP=true`, `USE_SYNTHETIC_GLUCOSE=true` — demo wearable data  

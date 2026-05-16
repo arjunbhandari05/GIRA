@@ -303,7 +303,7 @@ async def _run_agent_brief(
     if not patient:
         return {"error": f"patient {patient_id} not found"}
 
-    agent_mode = os.getenv("AGENT_MODE", "parallel").strip().lower()
+    agent_mode = os.getenv("AGENT_MODE", "llm").strip().lower()
     if agent_mode == "llm":
         brief = await run_with_tools(
             patient_id, patient, TOOL_DEFINITIONS, on_trace_step=on_trace_step

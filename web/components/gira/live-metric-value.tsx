@@ -1,6 +1,6 @@
 "use client"
 
-import { useLiveMetric } from "@/hooks/use-live-metric"
+import { useLiveMetric, type LiveMetricOptions } from "@/hooks/use-live-metric"
 
 interface LiveMetricValueProps {
   base: number | null | undefined
@@ -8,16 +8,18 @@ interface LiveMetricValueProps {
   unit: string
   jitter?: number
   decimals?: number
+  liveOptions?: LiveMetricOptions
 }
 
 export default function LiveMetricValue({
   base,
   enabled,
   unit,
-  jitter = 4,
+  jitter = 2,
   decimals = 0,
+  liveOptions,
 }: LiveMetricValueProps) {
-  const { value, tick } = useLiveMetric(base, enabled, jitter)
+  const { value, tick, pulse } = useLiveMetric(base, enabled, jitter, decimals, liveOptions)
 
   if (value == null) {
     return (
@@ -31,12 +33,15 @@ export default function LiveMetricValue({
   const formatted =
     decimals > 0 ? value.toFixed(decimals) : String(Math.round(value))
 
+  /** Re-mount each pulse/value tick so the fade cycle replays (~1s pulse, ~3s value). */
+  const animKey = enabled ? `${pulse}-${tick}` : "static"
+
   return (
     <>
       <span
-        key={tick}
-        className={`text-[24px] font-semibold text-[#0D0B14] tabular-nums ${
-          enabled ? "live-metric-value live-metric-tick" : ""
+        key={animKey}
+        className={`text-[24px] font-semibold text-[#0D0B14] tabular-nums inline-block ${
+          enabled ? "live-metric-value live-metric-fade-cycle" : ""
         }`}
       >
         {formatted}

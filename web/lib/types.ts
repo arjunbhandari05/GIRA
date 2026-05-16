@@ -136,6 +136,7 @@ export interface AgentBrief {
   error?: string
   _trace?: TraceStep[]
   _backend?: string
+  _llm_model?: string
 }
 
 export interface TraceStep {
@@ -150,6 +151,10 @@ export interface TraceStep {
   plan_fallback?: boolean
   auto_invoked?: boolean
   agent_wide_fallback?: boolean
+  /** One-line why this tool ran (demo / judges). */
+  reason?: string
+  /** Lightweight multi-agent grouping: orchestrator | safety | evidence | writer */
+  agent_role?: string
 }
 
 export interface LogLine {

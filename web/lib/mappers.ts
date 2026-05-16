@@ -307,7 +307,9 @@ export function traceStepToLogLine(step: TraceStep, elapsedSec: number): LogLine
   const text =
     step.agent_wide_fallback && typeof step.detail === "string"
       ? step.detail
-      : detail || (step.partial ? "…" : "complete")
+      : step.reason
+        ? `${step.reason} — ${detail || (step.partial ? "…" : "complete")}`
+        : detail || (step.partial ? "…" : "complete")
   return {
     timestamp: formatElapsedSeconds(elapsedSec),
     toolLabel: label,

@@ -144,9 +144,7 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
         snp_profile, current_meds, glucose, whoop, safety_flags, rxnorm_hits
     )
     fast_brief = bool(
-        _kwargs.get("skip_pgx_synthesis")
-        or findings.get("_fast_brief")
-        or os.getenv("AGENT_MODE", "parallel").strip().lower() == "parallel"
+        _kwargs.get("skip_pgx_synthesis") or findings.get("_fast_brief")
     )
     citations = _build_citations(
         safety_flags,

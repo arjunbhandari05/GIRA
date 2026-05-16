@@ -298,6 +298,107 @@
   animation: metric-tick 0.4s ease-out;
 }
 
+@keyframes live-metric-fade-cycle {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  45% {
+    opacity: 0.2;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.live-metric-fade-cycle {
+  animation: live-metric-fade-cycle 1.1s ease-in-out;
+}
+
 .live-metric-value {
   font-variant-numeric: tabular-nums;
+}
+
+@keyframes chart-end-ring-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.25);
+  }
+}
+
+.live-chart-end-ring {
+  animation: chart-end-ring-pulse 1s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes metric-card-drift {
+  0%,
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 0 0 0 rgba(91, 63, 212, 0);
+  }
+  50% {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 22px -12px rgba(91, 63, 212, 0.18);
+  }
+}
+
+.metric-card-live {
+  animation: metric-card-drift 3.6s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes metric-icon-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.metric-card-live .metric-card-icon-wrap svg {
+  animation: metric-icon-float 2.4s ease-in-out infinite;
+}
+
+@keyframes metric-trend-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+}
+
+.metric-card-live .metric-trend-row {
+  animation: metric-trend-nudge 3.1s ease-in-out infinite;
+}
+
+@keyframes live-chart-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.live-chart-panel {
+  animation: live-chart-float 4.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.live-chart-panel--delayed {
+  animation-delay: 0.6s;
 }

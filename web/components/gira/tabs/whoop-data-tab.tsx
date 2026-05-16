@@ -1,17 +1,20 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Heart, Activity, Droplet, Moon, TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react"
-import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid } from "recharts"
+import { useEffect, useMemo, useState } from "react"
+import { Heart, Activity, Droplet, TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react"
 import { getGlucose, getWearable } from "@/lib/api"
 import { wearableTrendToUi } from "@/lib/mappers"
 import LiveMetricValue from "../live-metric-value"
-import RecoveryWeekChart from "../recovery-week-chart"
+import MetricAreaChart from "../metric-area-chart"
+import RecoveryWeekChart, { type RecoverySummary } from "../recovery-week-chart"
+
+const LIVE_VALUE_MS = 4000
+const LIVE_PULSE_MS = 2000
 
 interface WhoopDataTabProps {
   patientId: string
   refreshKey?: number
-  /** Patient portal: live pulse + "Last synced: just now" */
+  /** Patient portal: shows sync hint only (metric values stay static). */
   liveMode?: boolean
 }
 
@@ -28,12 +31,11 @@ type MetricCard = {
 export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = false }: WhoopDataTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [whoopMissing, setWhoopMissing] = useState(false)
-  const [glucoseMissing, setGlucoseMissing] = useState(false)
   const [metrics, setMetrics] = useState<MetricCard[]>([])
   const [hrvData, setHrvData] = useState<{ day: number; value: number }[]>([])
   const [glucoseData, setGlucoseData] = useState<{ day: number; value: number }[]>([])
-  const [recoveryData, setRecoveryData] = useState<{ day: string; score: number }[]>([])
+  const [recoveryData, setRecoveryData] = useState<{ score: number }[]>([])
+  const [recoverySummary, setRecoverySummary] = useState<RecoverySummary | null>(null)
   const [metricBases, setMetricBases] = useState<{ hrv?: number; glucose?: number }>({})
   const [insight, setInsight] = useState<string | null>(null)
 
@@ -51,8 +53,6 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
 
         const whoopErr = Boolean(whoop.error)
         const glucoseErr = Boolean(glucose.error)
-        setWhoopMissing(whoopErr)
-        setGlucoseMissing(glucoseErr)
         if (whoopErr && glucoseErr) {
           setError(
             "No wearable or CGM files for this patient. The patient can upload them on their Setup page."
@@ -80,6 +80,20 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         const hrvBase = hrv.avg_30d != null ? Number(hrv.avg_30d) : undefined
         const glucoseBase = gAvg != null ? Math.round(gAvg) : undefined
         setMetricBases({ hrv: hrvBase, glucose: glucoseBase })
+
+        const recoveryAvg = recovery.avg_30d != null ? Number(recovery.avg_30d) : null
+        setRecoverySummary({
+          value:
+            recoveryAvg != null
+              ? Number.isInteger(recoveryAvg)
+                ? String(recoveryAvg)
+                : recoveryAvg.toFixed(1)
+              : "—",
+          unit: "/100",
+          trend: wearableTrendToUi(recovery.trend),
+          change: `${recovery.wow_pct ?? 0}%`,
+          status: (recoveryAvg ?? 0) < 50 ? "Low" : "Normal",
+        })
 
         setMetrics([
           {
@@ -115,15 +129,6 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
                   ? "Good"
                   : "Monitor",
           },
-          {
-            label: "Recovery Score",
-            value: recovery.avg_30d != null ? String(recovery.avg_30d) : "—",
-            unit: "/100",
-            trend: wearableTrendToUi(recovery.trend),
-            change: `${recovery.wow_pct ?? 0}%`,
-            icon: Moon,
-            status: (recovery.avg_30d ?? 0) < 50 ? "Low" : "Normal",
-          },
         ])
 
         const raw = (whoop.raw_series || {}) as Record<string, number[]>
@@ -131,9 +136,8 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         const recoverySeries = raw.recovery_score || []
         setHrvData(hrvSeries.slice(-30).map((value, i) => ({ day: i + 1, value })))
         setRecoveryData(
-          recoverySeries.slice(-7).map((score, i) => ({
-            day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i] || `D${i}`,
-            score,
+          recoverySeries.slice(-30).map((score) => ({
+            score: Math.round(Number(score)),
           }))
         )
 
@@ -163,6 +167,14 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
     }
   }, [patientId, refreshKey])
 
+  const topMetrics = useMemo(
+    () => metrics.filter((m) => !m.label.includes("Recovery")),
+    [metrics]
+  )
+
+  const showLiveCards = Boolean(liveMode && !error)
+  const showLiveChartEnd = showLiveCards
+
   const getTrendIcon = (trend: string) => {
     if (trend === "up") return <TrendingUp className="w-4 h-4" />
     if (trend === "down") return <TrendingDown className="w-4 h-4" />
@@ -186,11 +198,11 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         </p>
         <p className="text-[13px] text-[#6B6778] mt-1">
           {liveMode
-            ? "Streaming from your connected devices."
+            ? "Connected device summary (values refresh when you reload)."
             : "30-day summary from uploaded wearable and CGM data."}
         </p>
         {liveMode && !error && (
-          <p className="text-[12px] text-[#1A9E6E] mt-1 font-medium">Last synced: just now</p>
+          <p className="text-[12px] text-[#9895A8] mt-1">Last synced from your devices</p>
         )}
       </div>
 
@@ -201,12 +213,12 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {metrics.map((metric) => {
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {topMetrics.map((metric) => {
           const Icon = metric.icon
           const isHrv = metric.label.includes("Variability")
           const isGlucose = metric.label.includes("Glucose")
-          const showLive = liveMode && (isHrv || isGlucose)
+          const liveOpts = { valueIntervalMs: LIVE_VALUE_MS, pulseIntervalMs: LIVE_PULSE_MS }
           return (
             <div key={metric.label} className="border border-[#E8E6F0] rounded-lg bg-white p-5">
               <div className="flex items-start justify-between mb-3">
@@ -217,14 +229,21 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
                 {metric.label}
               </p>
               <div className="flex items-baseline gap-1 flex-wrap">
-                {isHrv && showLive ? (
-                  <LiveMetricValue base={metricBases.hrv} enabled unit={metric.unit} jitter={4} />
-                ) : isGlucose && showLive ? (
+                {showLiveCards && isHrv ? (
+                  <LiveMetricValue
+                    base={metricBases.hrv}
+                    enabled
+                    unit={metric.unit}
+                    jitter={1}
+                    liveOptions={liveOpts}
+                  />
+                ) : showLiveCards && isGlucose ? (
                   <LiveMetricValue
                     base={metricBases.glucose}
                     enabled
                     unit={metric.unit}
-                    jitter={4}
+                    jitter={3}
+                    liveOptions={liveOpts}
                   />
                 ) : (
                   <>
@@ -248,15 +267,12 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         <div className="border border-[#E8E6F0] rounded-lg bg-white p-5">
           <p className="text-[11px] font-semibold uppercase text-[#9895A8] mb-4">HRV — 30 days</p>
           <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={hrvData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6F0" />
-                <XAxis dataKey="day" tick={{ fontSize: 10 }} stroke="#9895A8" />
-                <YAxis tick={{ fontSize: 10 }} stroke="#9895A8" />
-                <Tooltip />
-                <Area type="monotone" dataKey="value" stroke="#5B3FD4" fill="#5B3FD420" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <MetricAreaChart
+              data={hrvData}
+              stroke="#5B3FD4"
+              fill="#5B3FD420"
+              showLiveEnd={showLiveChartEnd}
+            />
           </div>
         </div>
       )}
@@ -265,21 +281,18 @@ export default function WhoopDataTab({ patientId, refreshKey = 0, liveMode = fal
         <div className="border border-[#E8E6F0] rounded-lg bg-white p-5">
           <p className="text-[11px] font-semibold uppercase text-[#9895A8] mb-4">Glucose — 30 days</p>
           <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={glucoseData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6F0" />
-                <XAxis dataKey="day" tick={{ fontSize: 10 }} stroke="#9895A8" />
-                <YAxis tick={{ fontSize: 10 }} stroke="#9895A8" />
-                <Tooltip />
-                <Area type="monotone" dataKey="value" stroke="#1A9E6E" fill="#1A9E6E20" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <MetricAreaChart
+              data={glucoseData}
+              stroke="#1A9E6E"
+              fill="#1A9E6E20"
+              showLiveEnd={showLiveChartEnd}
+            />
           </div>
         </div>
       )}
 
-      {recoveryData.length > 0 && (
-        <RecoveryWeekChart data={recoveryData} liveMode={liveMode} />
+      {recoveryData.length > 0 && recoverySummary && (
+        <RecoveryWeekChart data={recoveryData} summary={recoverySummary} />
       )}
     </div>
   )
