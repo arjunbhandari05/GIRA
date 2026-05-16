@@ -1,4 +1,4 @@
-"""Markdown brief builder for Round 5."""
+"""Structured agent brief assembly (generate_brief tool output)."""
 
 from datetime import datetime, timezone
 from typing import Any
@@ -6,67 +6,7 @@ from typing import Any
 from apis.pubmed import fetch_pubmed_articles_for_pmids
 from reasoning.pgx import build_relevant_snp_rows
 from reasoning.pgx_synthesis import synthesize_pgx_evidence
-
-
-def build_brief(patient, snps, wearable, pharmgkb, clinvar, safety_flags, nemotron_text) -> str:
-    generated_at = datetime.now(timezone.utc).isoformat()
-    meds = patient.get("meds", [])
-    if isinstance(meds, str):
-        meds = [meds]
-
-    lines = [
-        f"# GlycoAgent Clinical Brief — {patient.get('name', 'Unknown')}",
-        "",
-        f"- **Patient ID:** {patient.get('patient_id', patient.get('id', 'n/a'))}",
-        f"- **Medications:** {', '.join(meds)}",
-        f"- **Next appointment:** {patient.get('next_appointment_iso', 'n/a')}",
-        f"- **Generated:** {generated_at}",
-        "",
-    ]
-
-    if safety_flags:
-        for flag in safety_flags:
-            lines.extend(
-                [
-                    f"> **{flag.get('severity')} — {flag.get('gene')} / {flag.get('rsid')}**",
-                    f"> {flag.get('flag')}",
-                    f"> **Action:** {flag.get('action')}",
-                    f"> **PMID:** {flag.get('pmid')}",
-                    "",
-                ]
-            )
-    else:
-        lines.extend(["> **No deterministic safety flags fired.**", ""])
-
-    lines.extend(["## Clinical Analysis", "", nemotron_text.strip(), "", "## Citation List", ""])
-
-    citations = _citation_list(pharmgkb, clinvar, safety_flags)
-    lines.extend(citations or ["No citations available."])
-    return "\n".join(lines)
-
-
-def _citation_list(pharmgkb, clinvar, safety_flags) -> list:
-    seen = set()
-    citations = []
-
-    for flag in safety_flags:
-        pmid = flag.get("pmid")
-        if pmid and pmid not in seen:
-            seen.add(pmid)
-            citations.append(f"- [PMID {pmid}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/)")
-
-    for row in pharmgkb.values():
-        pmid = row.get("pmid") if isinstance(row, dict) else None
-        if pmid and pmid not in seen:
-            seen.add(pmid)
-            citations.append(f"- [PMID {pmid}](https://pubmed.ncbi.nlm.nih.gov/{pmid}/)")
-
-    for rsid, row in clinvar.items():
-        url = row.get("evidence_url") if isinstance(row, dict) else None
-        if url:
-            citations.append(f"- [ClinVar {rsid}]({url})")
-
-    return citations
+from schemas.patient_intake import intake_has_clinical_data
 
 
 def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dict[str, Any]:
@@ -142,6 +82,7 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
         "patient_summary": _patient_summary(
             patient, snp_profile, glucose, safety_flags, recommendation
         ),
+        "intake_summary": _intake_summary(patient),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
     return out
@@ -447,6 +388,29 @@ def _citation_set_used_only(
     return out
 
 
+def _intake_summary(patient: dict) -> dict[str, Any]:
+    intake = patient.get("intake") or {}
+    if not intake_has_clinical_data(intake):
+        return {"available": False}
+    goals = intake.get("goals") or []
+    side = intake.get("sideEffects") or []
+    vitals = intake.get("vitals") or {}
+    return {
+        "available": True,
+        "goals": goals,
+        "side_effects": side,
+        "hba1c": vitals.get("hba1c"),
+        "fasting_glucose": vitals.get("fastingGlucose"),
+        "medications": [
+            f"{m.get('name')} {m.get('dose')}".strip()
+            for m in (intake.get("medications") or [])
+            if isinstance(m, dict)
+        ],
+        "clinician_notes": (intake.get("clinicianNotes") or "")[:300],
+        "text": format_intake_for_llm(intake),
+    }
+
+
 def _patient_summary(
     patient: dict,
     snp_profile: dict[str, dict],
@@ -456,6 +420,16 @@ def _patient_summary(
 ) -> str:
     name = patient.get("name") or "Patient"
     lines = [name]
+    intake = patient.get("intake") or {}
+    if intake_has_clinical_data(intake):
+        goals = ", ".join(intake.get("goals") or []) or "unspecified"
+        lines.append(f"Intake goals: {goals}.")
+        side = intake.get("sideEffects") or []
+        if side:
+            lines.append(f"Reported side effects: {', '.join(side)}.")
+        hba1c = (intake.get("vitals") or {}).get("hba1c")
+        if hba1c:
+            lines.append(f"Chart HbA1c {hba1c}.")
     if glucose and "error" not in glucose:
         tir = glucose.get("time_in_range_pct")
         avg = glucose.get("avg_glucose_mgdl")

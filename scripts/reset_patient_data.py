@@ -3,7 +3,7 @@
 Wipe all patient-linked data so you can onboard from scratch.
 
 Clears:
-  - SQLite: patients, briefs, agent_briefs
+  - SQLite: patients, agent_briefs
   - data/uploads/* (uploaded genome copies)
   - data/genomes/* (demo + uploaded genome files)
   - data/whoop/* and data/glucose/* (synthetic wearable/CGM)
@@ -47,15 +47,13 @@ def _clear_sqlite(db: Path) -> dict[str, int]:
         return {}
     conn = sqlite3.connect(db)
     counts: dict[str, int] = {}
-    for table in ("agent_briefs", "briefs", "patients"):
+    for table in ("agent_briefs", "patients"):
         try:
             counts[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         except sqlite3.OperationalError:
             counts[table] = 0
     conn.execute("DELETE FROM agent_briefs")
-    conn.execute("DELETE FROM briefs")
     conn.execute("DELETE FROM patients")
-    conn.execute("DELETE FROM sqlite_sequence WHERE name='briefs'")
     conn.commit()
     conn.close()
     return counts
@@ -84,7 +82,7 @@ def main() -> int:
     db = _db_path()
     if not args.yes:
         print("This will DELETE:")
-        print(f"  - SQLite rows in {db} (patients, briefs, agent_briefs)")
+        print(f"  - SQLite rows in {db} (patients, agent_briefs)")
         print("  - All files under data/uploads, genomes, whoop, glucose")
         confirm = input("Type RESET to continue: ").strip()
         if confirm != "RESET":
@@ -99,9 +97,10 @@ def main() -> int:
         print(f"  {table}: removed {n} row(s)")
     print(f"Removed {len(files)} file(s) under data/")
     print("\nNext steps:")
-    print("  1. Upload a new 23andMe raw file in the UI")
-    print("  2. Add WHOOP + CGM JSON for that patient_id (see data/README.md)")
-    print("  3. Update patient zip/meds in DB if needed, then Run Agent with refresh")
+    print("  1. POST /upload with a 23andMe raw file")
+    print("  2. PUT /intake/{patient_id} with the intake form (or add data/intake/{id}.json)")
+    print("  3. Add WHOOP + CGM JSON (see data/README.md)")
+    print("  4. GET /agent_brief/{patient_id}?refresh=true")
     return 0
 
 

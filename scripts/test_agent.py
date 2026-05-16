@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Verify that GlycoAgent's agentic Nemotron loop produces correct, evidence-cited
-briefs for the three demo patients. Run before any UI work.
+briefs for the three demo patients.
 
 Usage:
     python3 scripts/test_agent.py             # all three patients

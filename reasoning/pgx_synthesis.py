@@ -77,6 +77,9 @@ def _evidence_context(
     lines = [
         f"PATIENT MEDS: {json.dumps(meds)}",
         "",
+        "PATIENT INTAKE (goals, side effects, vitals — honor in findings):",
+        patient.get("intake_text") or "(no intake)",
+        "",
         "SNPs TO INTERPRET (genotype is fixed — do not change it):",
     ]
     for row in snp_rows:

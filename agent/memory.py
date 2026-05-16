@@ -1,16 +1,7 @@
 """
 agent/memory.py
 
-Python-side persistent memory.
-
-Mirrors the JS memory.js contract but reads from the same SQLite database
-seeded by scripts/seed_db.py — `patients(patient_id, name, zip, meds,
-next_appointment_iso, snp_profile_json, parsed_at)` plus the `briefs` table.
-
-Used by:
-  - reasoning.nemotron.run_with_tools  (loads patient context)
-  - scripts/test_agent.py              (verification harness)
-  - agent/claw.js                      (via subprocess bridge)
+SQLite persistence for patients, intake forms, and cached agent briefs.
 """
 
 from __future__ import annotations
@@ -41,6 +32,37 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def ensure_schema() -> None:
+    """Add columns/tables introduced after initial seed without dropping data."""
+    conn = _connect()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(patients)").fetchall()}
+    if "intake_json" not in cols:
+        conn.execute("ALTER TABLE patients ADD COLUMN intake_json TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_briefs (
+            patient_id TEXT PRIMARY KEY,
+            generated_at TEXT,
+            brief_json TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def _parse_intake_json(raw: Any) -> dict[str, Any] | None:
+    if not raw:
+        return None
+    if isinstance(raw, dict):
+        return raw
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
 def _row_to_patient(row: sqlite3.Row) -> dict[str, Any]:
     d = dict(row)
     if d.get("meds"):
@@ -53,6 +75,7 @@ def _row_to_patient(row: sqlite3.Row) -> dict[str, Any]:
             d["snp_profile_json"] = json.loads(d["snp_profile_json"])
         except (TypeError, json.JSONDecodeError):
             pass
+    intake_raw = _parse_intake_json(d.get("intake_json"))
 
     meds = d.get("meds") or []
     snp_profile = d.get("snp_profile_json") or {}
@@ -78,36 +101,19 @@ def _row_to_patient(row: sqlite3.Row) -> dict[str, Any]:
             }
         ),
         "parsed_at": d.get("parsed_at"),
-        "history": _recent_briefs(d.get("patient_id")),
+        "intake": intake_raw,
     }
-
-
-def _recent_briefs(patient_id: str | None, limit: int = 3) -> list[dict[str, Any]]:
-    if not patient_id:
-        return []
-    try:
-        conn = _connect()
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT generated_at, brief_md FROM briefs "
-            "WHERE patient_id = ? ORDER BY generated_at DESC LIMIT ?",
-            (patient_id, limit),
-        )
-        rows = cur.fetchall()
-        conn.close()
-        return [{"generated_at": r["generated_at"], "brief_md": r["brief_md"]} for r in rows]
-    except sqlite3.Error:
-        return []
 
 
 def read(patient_id: str) -> dict[str, Any] | None:
     """Look up a patient by id. Returns the enriched dict or None if missing."""
     try:
+        ensure_schema()
         conn = _connect()
         cur = conn.cursor()
         cur.execute(
             "SELECT patient_id, name, zip, meds, next_appointment_iso, "
-            "snp_profile_json, parsed_at FROM patients WHERE patient_id = ?",
+            "snp_profile_json, parsed_at, intake_json FROM patients WHERE patient_id = ?",
             (patient_id,),
         )
         row = cur.fetchone()
@@ -116,25 +122,33 @@ def read(patient_id: str) -> dict[str, Any] | None:
         return None
     if not row:
         return None
-    return _row_to_patient(row)
+    patient = _row_to_patient(row)
+    from parsers.intake_client import attach_intake_to_patient
+
+    return attach_intake_to_patient(patient)
 
 
-def write_brief(patient_id: str, brief: dict[str, Any]) -> None:
-    """Persist an agentic brief into the briefs table."""
-    generated_at = datetime.now(timezone.utc).isoformat()
+def write_intake(patient_id: str, intake: dict[str, Any]) -> dict[str, Any]:
+    """Persist intake JSON; sync meds column for legacy callers."""
+    from schemas.patient_intake import medications_to_strings, normalize_intake
+
+    ensure_schema()
+    normalized = normalize_intake(intake, patient_id)
+    normalized["submittedAt"] = datetime.now(timezone.utc).isoformat()
+    med_strings = medications_to_strings(normalized)
     conn = _connect()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO briefs (patient_id, generated_at, brief_md, wearable_snapshot_json)
-        VALUES (?, ?, ?, ?)
+        UPDATE patients
+        SET intake_json = ?, meds = ?
+        WHERE patient_id = ?
         """,
-        (
-            patient_id,
-            generated_at,
-            json.dumps(brief, default=str),
-            json.dumps(brief.get("wearable_insight") or {}, default=str),
-        ),
+        (json.dumps(normalized), json.dumps(med_strings), patient_id),
     )
+    if cur.rowcount == 0:
+        conn.close()
+        raise ValueError(f"patient {patient_id} not found")
     conn.commit()
     conn.close()
+    return normalized

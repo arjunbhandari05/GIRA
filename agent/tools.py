@@ -1,17 +1,7 @@
 """
 agent/tools.py
 
-Python-side tool registry consumed by reasoning.nemotron.run_with_tools
-and scripts/test_agent.py.
-
-Each entry has:
-  - name: tool identifier the LLM emits
-  - description: surface area for the system prompt
-  - parameters: schema hint shown to the model
-  - fn: real Python callable invoked with the LLM's args dict
-
-The mirrored JS file (agent/tools.js) carries the same names and
-descriptions for the heartbeat / claw side of the codebase.
+Tool registry for reasoning.nemotron.run_with_tools and scripts/test_agent.py.
 """
 
 from __future__ import annotations
@@ -25,6 +15,7 @@ from apis.pubmed import fetch_pubmed
 from apis.rxnorm import fetch_rxnorm
 from output.brief_builder import assemble_brief
 from parsers.glucose_client import load_glucose
+from parsers.intake_client import get_patient_intake
 from parsers.snp_parser import get_snp_profile
 from parsers.whoop_client import load_whoop
 from reasoning.safety_flags import check as check_safety_flags
@@ -59,6 +50,16 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         ),
         "parameters": {"patient_id": "string"},
         "fn": _wrap(get_snp_profile),
+    },
+    {
+        "name": "get_patient_intake",
+        "description": (
+            "Load the clinician intake form: structured medications, vitals, goals, "
+            "side effects, lifestyle, comorbidities, family history, and notes. "
+            "Call early — use for medication matching, goals, and counseling context."
+        ),
+        "parameters": {"patient_id": "string"},
+        "fn": _wrap(get_patient_intake),
     },
     {
         "name": "fetch_whoop",

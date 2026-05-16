@@ -16,7 +16,7 @@ import certifi
 import requests
 from dotenv import load_dotenv
 
-from reasoning.prompts import build_agentic_system_prompt, build_system_prompt
+from reasoning.prompts import build_agentic_system_prompt
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -140,64 +140,6 @@ def _trace_step_record(
     return row
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Round 5: legacy single-shot prompt path (used by FastAPI /brief)
-# ──────────────────────────────────────────────────────────────────────────────
-
-
-async def run_nemotron(context_prompt: str) -> str:
-    messages = [
-        {"role": "system", "content": build_system_prompt()},
-        {"role": "user", "content": context_prompt},
-    ]
-    backend = _detect_backend()
-    if backend == "none":
-        return ERROR_TEXT
-
-    try:
-        content = await asyncio.to_thread(
-            _call_model, messages, backend, json_mode=False
-        )
-        content = (content or "").strip()
-        if not content:
-            return ERROR_TEXT
-        if _looks_like_planning_text(content):
-            return _final_brief_draft_from_context(context_prompt) or content
-        return content
-    except Exception as exc:
-        _log(f"[run_nemotron] backend={backend} exception: {exc!r}")
-        return ERROR_TEXT
-
-
-def _looks_like_planning_text(text: str) -> bool:
-    lowered = text.lower()
-    return any(
-        marker in lowered
-        for marker in (
-            "we need to",
-            "we must",
-            "let's",
-            "first, ensure",
-            "the draft's",
-            "thus final output",
-        )
-    )
-
-
-def _final_brief_draft_from_context(context_prompt: str) -> str:
-    marker = "FINAL BRIEF DRAFT (return this kind of content directly, not commentary):"
-    if marker not in context_prompt:
-        return ""
-    draft = context_prompt.split(marker, 1)[1]
-    draft = draft.split("Write the brief now.", 1)[0]
-    return draft.strip()
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Round 6: agentic tool-calling loop
-# ──────────────────────────────────────────────────────────────────────────────
-
-
 async def run_with_tools(
     patient_id: str,
     patient: dict[str, Any],
@@ -220,7 +162,17 @@ async def run_with_tools(
     Backend selection (first reachable wins):
       NVIDIA NIM (NVIDIA_API_KEY) → OpenRouter → Ollama → deterministic fallback.
     """
-    findings: dict[str, Any] = {"patient": patient}
+    from parsers.intake_client import attach_intake_to_patient
+
+    patient = attach_intake_to_patient(patient)
+    findings: dict[str, Any] = {
+        "patient": patient,
+        "get_patient_intake": {
+            "patient_id": patient_id,
+            "intake": patient.get("intake"),
+            "medications_flat": patient.get("current_meds") or [],
+        },
+    }
     trace: list[dict[str, Any]] = []
     tools_by_name = {t["name"]: t for t in tools}
     descriptions = "\n".join(
@@ -230,17 +182,19 @@ async def run_with_tools(
     system_prompt = build_agentic_system_prompt(descriptions)
     user_prompt = (
         f"Generate a pharmacogenomic brief for patient {patient_id}.\n"
-        f"Current medications: {json.dumps(patient.get('current_meds', []) or patient.get('meds', []))}\n"
         f"Zip code: {patient.get('zip_code') or patient.get('zip', 'unknown')}\n\n"
+        "PATIENT INTAKE FORM (evaluate goals, side effects, vitals vs PGx/CGM):\n"
+        f"{patient.get('intake_text') or 'No intake on file.'}\n\n"
         "Call tools in this order based on what you find:\n"
         "1. get_snp_profile first — always\n"
-        "2. fetch_clinvar for patient rsIDs\n"
-        "3. fetch_pubmed for gene-drug pairs tied to the patient's genotype\n"
-        "4. fetch_whoop and fetch_glucose together — confirm medication response\n"
-        "5. fetch_rxnorm before any medication change recommendation\n"
-        "6. fetch_trials if a high-impact variant or safety flag warrants it\n"
-        "7. check_safety_flags — mandatory\n"
-        "8. generate_brief — only after check_safety_flags (PGx table uses ClinVar + PubMed, not static PharmGKB)\n\n"
+        "2. get_patient_intake if you need to refresh structured meds/goals (often preloaded)\n"
+        "3. fetch_clinvar for patient rsIDs\n"
+        "4. fetch_pubmed for gene-drug pairs tied to the patient's genotype\n"
+        "5. fetch_whoop and fetch_glucose — compare to intake vitals/goals\n"
+        "6. fetch_rxnorm before any medication change recommendation\n"
+        "7. fetch_trials if a high-impact variant or safety flag warrants it\n"
+        "8. check_safety_flags — mandatory (uses intake medications)\n"
+        "9. generate_brief — only after check_safety_flags\n\n"
         "Respond with ONE JSON object per turn:\n"
         '  {"tool_call": {"name": "tool_name", "args": {...}}}\n'
         "When all tools have been called and the brief generated, respond:\n"
@@ -627,7 +581,7 @@ def _enrich_args(
         or []
     )
 
-    if name == "get_snp_profile":
+    if name in ("get_snp_profile", "get_patient_intake"):
         args.setdefault("patient_id", patient.get("patient_id"))
     elif name in ("fetch_whoop", "fetch_glucose"):
         args.setdefault("patient_id", patient.get("patient_id"))
@@ -666,6 +620,7 @@ def _enrich_args(
 
 DETERMINISTIC_PLAN = [
     "get_snp_profile",
+    "get_patient_intake",
     "fetch_clinvar",
     "fetch_whoop",
     "fetch_glucose",
@@ -850,6 +805,16 @@ def _summarize_result(name: str, result: Any) -> dict[str, Any]:
             if geno and geno not in ("--",) and len(geno) == 2:
                 risk.append(f"{gene} {geno}")
         return {"snp_count": len(result), "genotypes": risk[:10]}
+
+    if name == "get_patient_intake" and isinstance(result, dict):
+        intake = result.get("intake") or {}
+        meds = intake.get("medications") or []
+        return {
+            "has_intake": bool(result.get("has_clinical_data")),
+            "med_count": len(meds),
+            "goals": (intake.get("goals") or [])[:4],
+            "side_effects": (intake.get("sideEffects") or [])[:4],
+        }
 
     if name == "fetch_glucose" and isinstance(result, dict):
         return {

@@ -5,7 +5,23 @@ from __future__ import annotations
 from typing import Any
 
 from apis.pharmgkb import lookup_pgx_annotation
-from reasoning.prompts import GENOTYPE_FINDINGS
+
+GENOTYPE_FINDINGS: dict[tuple[str, str], str] = {
+    ("rs7903146", "TT"): "TT genotype associated with reduced metformin efficacy",
+    ("rs622342", "AA"): "AA genotype reduces OCT1 metformin transport ~50%",
+    ("rs5219", "TT"): "TT genotype — better sulfonylurea response",
+    ("rs1801282", "CC"): "CC genotype — reduced TZD response",
+    ("rs757110", "AA"): "AA genotype — alters sulfonylurea receptor binding",
+    ("rs9939609", "AA"): "AA genotype — obesity risk, enhanced GLP-1 weight response",
+    ("rs4149056", "TC"): "TC genotype — intermediate statin transport, moderate myopathy risk",
+    ("rs4149056", "TT"): "TT genotype — high statin myopathy risk",
+    ("rs429358", "CT"): "CT genotype — one APOE4 allele, moderate CVD risk",
+    ("rs429358", "TT"): "TT genotype — APOE4-associated elevated cardiovascular risk",
+    ("rs4244285", "GA"): "GA genotype — intermediate metabolizer, reduced clopidogrel efficacy",
+    ("rs4244285", "AA"): "AA genotype — poor metabolizer, clopidogrel has zero antiplatelet effect",
+    ("rs9923231", "GA"): "GA genotype — intermediate warfarin sensitivity",
+    ("rs9923231", "AA"): "AA genotype — warfarin hypersensitivity",
+}
 
 # Gene → drug classes used to surface PGx when the patient is on that therapy.
 _MED_GENE_HINTS: dict[str, tuple[str, ...]] = {

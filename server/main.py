@@ -1,4 +1,4 @@
-"""GlycoAgent API — Round 1: patients DB and 23andMe upload parsing."""
+"""GlycoAgent FastAPI backend — patients, intake, genomics, agentic briefs."""
 
 import json
 import os
@@ -6,27 +6,24 @@ import random
 import sqlite3
 import string
 import tempfile
-import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List
 
-import aiohttp
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from agent.memory import read as agent_read_patient
+from agent.memory import ensure_schema, read as agent_read_patient, write_intake
+from parsers.intake_client import load_intake
 from agent.tools import TOOL_DEFINITIONS
-from apis.clinvar import get_clinvar
-from apis.pharmgkb import get_pharmgkb
-from apis.pubmed import get_pubmed
 from parsers.glucose_client import load_glucose
 from parsers.snp_parser import parse_genome
 from parsers.whoop_client import get_whoop_analytics
 from reasoning.nemotron import run_with_tools
 from reasoning.safety_flags import check_safety_flags
+from schemas.patient_intake import intake_has_clinical_data
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env", override=True)
@@ -50,7 +47,7 @@ def _db_path() -> str:
 
 
 def _ensure_agent_briefs_table() -> None:
-    """Cache table for agentic briefs so the UI doesn't pay the LLM cost twice."""
+    """Cache table for agentic briefs (avoids re-running the LLM on repeat requests)."""
     conn = sqlite3.connect(_db_path())
     conn.execute(
         """
@@ -66,6 +63,7 @@ def _ensure_agent_briefs_table() -> None:
 
 
 _ensure_agent_briefs_table()
+ensure_schema()
 
 
 def _row_to_patient(row: sqlite3.Row) -> dict:
@@ -99,46 +97,6 @@ def _load_patient_and_snps(patient_id: str) -> tuple[dict | None, dict]:
     patient = _row_to_patient(row)
     snps = patient.get("snp_profile_json") or {}
     return patient, snps
-
-
-def _pharmgkb_for_snps(snps: dict) -> dict:
-    return {
-        rsid: get_pharmgkb(rsid)
-        for rsid in snps.keys()
-    }
-
-
-async def _run_api_annotations(snps: dict) -> dict:
-    rsids = list(snps.keys())
-    timeout = aiohttp.ClientTimeout(total=90)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        clinvar = {}
-        for index, rsid in enumerate(rsids):
-            if index > 0:
-                await asyncio.sleep(1)
-            clinvar[rsid] = await get_clinvar(rsid, session)
-
-        queries = []
-        for rsid in rsids:
-            annotation = get_pharmgkb(rsid)
-            if annotation.get("finding") == "No annotation available.":
-                continue
-            gene = annotation.get("gene")
-            drug = annotation.get("drug")
-            if gene and drug:
-                queries.append(f"{gene} {drug} pharmacogenomics")
-            if len(queries) == 3:
-                break
-
-        pubmed_results = await asyncio.gather(
-            *(get_pubmed(query, session) for query in queries)
-        )
-        pubmed = {
-            query: result
-            for query, result in zip(queries, pubmed_results)
-        }
-
-    return {"clinvar": clinvar, "pubmed": pubmed}
 
 
 @app.get("/", include_in_schema=False)
@@ -187,12 +145,37 @@ def get_safety(patient_id: str) -> list:
     return check_safety_flags(snps)
 
 
-@app.get("/apis/{patient_id}")
-async def get_api_annotations(patient_id: str) -> dict:
-    patient, snps = _load_patient_and_snps(patient_id)
+@app.get("/intake/{patient_id}")
+def get_intake(patient_id: str) -> dict:
+    """Return merged intake (DB + synthetic file fallback)."""
+    patient = agent_read_patient(patient_id)
     if not patient:
-        return {"clinvar": {}, "pubmed": {}}
-    return await _run_api_annotations(snps)
+        intake = load_intake(patient_id)
+        if intake_has_clinical_data(intake):
+            return {"patient_id": patient_id, "intake": intake, "source": "file"}
+        return {"error": f"patient {patient_id} not found"}
+    return {
+        "patient_id": patient_id,
+        "intake": patient.get("intake"),
+        "medications_flat": patient.get("current_meds") or [],
+    }
+
+
+@app.put("/intake/{patient_id}")
+def put_intake(patient_id: str, payload: dict) -> dict:
+    """Save clinician intake form; syncs meds list used by safety/RxNorm tools."""
+    from schemas.patient_intake import intake_has_clinical_data
+
+    try:
+        saved = write_intake(patient_id, payload or {})
+    except ValueError:
+        return {"error": f"patient {patient_id} not found"}
+    return {
+        "patient_id": patient_id,
+        "intake": saved,
+        "saved": True,
+        "has_clinical_data": intake_has_clinical_data(saved),
+    }
 
 
 async def _run_agent_brief(

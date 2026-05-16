@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create glycoagent.db and seed demo patients."""
+"""Create memory.db and seed demo patients (genotypes + optional intake from data/intake/)."""
 
 import json
 import os
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-DB_PATH = os.environ.get("MEMORY_DB_PATH", "glycoagent.db")
+DB_PATH = os.environ.get("MEMORY_DB_PATH", "memory.db")
 if not os.path.isabs(DB_PATH):
     DB_PATH = str(ROOT / DB_PATH)
 
@@ -21,13 +21,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _load_intake(patient_id: str) -> str | None:
+    path = ROOT / "data" / "intake" / f"{patient_id}.json"
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return None
+
+
 def main() -> None:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
 
     cur.executescript(
         """
-        DROP TABLE IF EXISTS briefs;
+        DROP TABLE IF EXISTS agent_briefs;
         DROP TABLE IF EXISTS patients;
 
         CREATE TABLE patients (
@@ -37,15 +44,14 @@ def main() -> None:
             meds TEXT,
             next_appointment_iso TEXT,
             snp_profile_json TEXT,
-            parsed_at TEXT
+            parsed_at TEXT,
+            intake_json TEXT
         );
 
-        CREATE TABLE briefs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            patient_id TEXT,
+        CREATE TABLE agent_briefs (
+            patient_id TEXT PRIMARY KEY,
             generated_at TEXT,
-            brief_md TEXT,
-            wearable_snapshot_json TEXT
+            brief_json TEXT
         );
         """
     )
@@ -112,12 +118,13 @@ def main() -> None:
 
     parsed_at = _now_iso()
     for p in patients:
+        intake_raw = _load_intake(p["patient_id"])
         cur.execute(
             """
             INSERT INTO patients (
                 patient_id, name, zip, meds, next_appointment_iso,
-                snp_profile_json, parsed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                snp_profile_json, parsed_at, intake_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 p["patient_id"],
@@ -127,6 +134,7 @@ def main() -> None:
                 p["next_appointment_iso"],
                 json.dumps(p["snps"]),
                 parsed_at,
+                intake_raw,
             ),
         )
 
