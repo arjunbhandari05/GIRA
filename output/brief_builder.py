@@ -3,6 +3,8 @@
 from datetime import datetime, timezone
 from typing import Any
 
+from apis.pubmed import fetch_pubmed_articles_for_pmids
+
 
 def build_brief(patient, snps, wearable, pharmgkb, clinvar, safety_flags, nemotron_text) -> str:
     generated_at = datetime.now(timezone.utc).isoformat()
@@ -85,7 +87,9 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
     pharmgkb_hits = _as_list(findings.get("fetch_pharmgkb"))
     pubmed_hits = _flatten_pubmed(findings)
     rxnorm_hits = _as_list(findings.get("fetch_rxnorm"))
-    trials = _as_list(findings.get("fetch_trials"))
+    trials_raw = findings.get("fetch_trials")
+    trials = _trials_list(trials_raw)
+    trial_meta = _trials_meta(trials_raw)
     patient = findings.get("patient") or {}
     current_meds = patient.get("current_meds") or patient.get("meds") or []
 
@@ -93,13 +97,15 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
     recommendation = _recommendation(
         snp_profile, current_meds, glucose, whoop, safety_flags, pharmgkb_hits, rxnorm_hits
     )
-    citations = _citation_set(safety_flags, pharmgkb_hits, pubmed_hits, recommendation)
+    citations = _citation_set_used_only(
+        safety_flags, pharmgkb_hits, pubmed_hits, recommendation
+    )
 
     glucose_insight = _glucose_insight(glucose)
     wearable_insight = _wearable_insight(whoop)
     trial_matches = _trial_matches(trials)
 
-    return {
+    out: dict[str, Any] = {
         "action_required": bool(safety_flags) or recommendation.get("switch_required", False),
         "safety_flags": [
             {
@@ -119,12 +125,14 @@ def assemble_brief(all_findings: dict[str, Any] | None = None, **_kwargs) -> dic
         "wearable_insight": wearable_insight,
         "glucose_insight": glucose_insight,
         "trial_matches": trial_matches,
+        "trial_search_meta": trial_meta,
         "citations": citations,
         "patient_summary": _patient_summary(
             patient, snp_profile, glucose, safety_flags, recommendation
         ),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+    return out
 
 
 def _as_list(value: Any) -> list:
@@ -170,8 +178,27 @@ def _summarize_snps(snp_profile: dict[str, dict], pharmgkb_hits: list[dict]) -> 
     return out
 
 
+def _trials_list(raw: Any) -> list[dict]:
+    if isinstance(raw, dict):
+        rows = raw.get("trials")
+        if isinstance(rows, list):
+            return [t for t in rows if isinstance(t, dict)]
+        return []
+    return _as_list(raw)
+
+
+def _trials_meta(raw: Any) -> dict[str, Any] | None:
+    if isinstance(raw, dict):
+        meta = raw.get("_meta")
+        if isinstance(meta, dict):
+            return dict(meta)
+    return None
+
+
 def _flatten_pubmed(findings: dict[str, Any]) -> list[dict]:
     hits = findings.get("fetch_pubmed")
+    if isinstance(hits, dict) and "articles" in hits:
+        return [h for h in (hits.get("articles") or []) if isinstance(h, dict)]
     if isinstance(hits, list):
         return [h for h in hits if isinstance(h, dict)]
     if isinstance(hits, dict):
@@ -318,36 +345,117 @@ def _recommendation(
     return rec
 
 
-def _citation_set(
+def _citation_inference(
+    pmid: str,
+    recommendation: dict[str, Any],
+    safety_flags: list,
+    pharmgkb_hits: list[dict],
+) -> str:
+    """One-sentence rationale tying a PMID to this brief (no unused filler)."""
+    pmid_s = str(pmid)
+    rec_pmids = [str(p) for p in (recommendation.get("supporting_pmids") or [])]
+    if pmid_s in rec_pmids:
+        rec = recommendation
+        parts = []
+        if rec.get("discontinue") and rec.get("start"):
+            parts.append(
+                f"Supports switching from {rec.get('discontinue')} to {rec.get('start')} "
+                "given the patient's PGx + CGM picture encoded in this recommendation."
+            )
+        elif rec.get("rationale"):
+            parts.append(str(rec["rationale"][0])[:280])
+        else:
+            parts.append("Listed as a primary evidence PMID for this medication decision.")
+        return " ".join(parts)
+
+    for flag in safety_flags:
+        if str(flag.get("pmid") or "") == pmid_s:
+            return (
+                f"Grounds the {flag.get('severity')} safety gate on {flag.get('gene')} "
+                f"({flag.get('rsid')}): {str(flag.get('flag') or '')[:200]}"
+            )
+
+    for hit in pharmgkb_hits:
+        if not isinstance(hit, dict):
+            continue
+        if str(hit.get("pmid") or "") == pmid_s:
+            g = hit.get("gene") or "?"
+            return (
+                f"PharmGKB annotation for {g}: {str(hit.get('finding') or '')[:220]}"
+            )
+
+    return "Referenced in this brief as supporting literature."
+
+
+def _citation_set_used_only(
     safety_flags: list,
     pharmgkb_hits: list[dict],
     pubmed_hits: list[dict],
     recommendation: dict[str, Any],
 ) -> list[dict]:
+    """
+    Only PMIDs that materially support this brief: recommendation.supporting_pmids
+    plus safety-flag PMIDs. No bulk PubMed dump of unrelated articles.
+    """
+    used: list[str] = []
     seen: set[str] = set()
-    out: list[dict] = []
 
-    def add(pmid: str, title: str | None = None) -> None:
-        if not pmid or pmid in seen:
-            return
-        seen.add(pmid)
+    for pmid in recommendation.get("supporting_pmids") or []:
+        s = str(pmid).strip()
+        if s and s not in seen:
+            seen.add(s)
+            used.append(s)
+
+    for flag in safety_flags:
+        s = str(flag.get("pmid") or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            used.append(s)
+
+    by_pmid: dict[str, dict] = {}
+    for article in pubmed_hits:
+        p = str(article.get("pmid") or "").strip()
+        if p:
+            by_pmid[p] = article
+
+    for hit in pharmgkb_hits:
+        if not isinstance(hit, dict):
+            continue
+        p = str(hit.get("pmid") or "").strip()
+        if p and p not in by_pmid:
+            by_pmid[p] = {
+                "pmid": p,
+                "title": str(hit.get("finding") or hit.get("drug") or ""),
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{p}/",
+            }
+
+    missing = [p for p in used if p not in by_pmid or not (by_pmid[p].get("title"))]
+    if missing:
+        extra = fetch_pubmed_articles_for_pmids(missing)
+        for row in extra.get("articles") or []:
+            if isinstance(row, dict):
+                p = str(row.get("pmid") or "").strip()
+                if p:
+                    by_pmid[p] = {**by_pmid.get(p, {}), **row}
+
+    out: list[dict] = []
+    for pmid in used:
+        row = by_pmid.get(pmid) or {
+            "pmid": pmid,
+            "title": "",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        }
+        note = row.get("evidence_note") or _citation_inference(
+            pmid, recommendation, safety_flags, pharmgkb_hits
+        )
         out.append(
             {
                 "pmid": pmid,
-                "title": title or "",
-                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                "title": row.get("title") or "",
+                "url": row.get("url") or f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+                "inference": note,
             }
         )
-
-    for pmid in recommendation.get("supporting_pmids", []):
-        add(pmid)
-    for flag in safety_flags:
-        add(flag.get("pmid", ""), flag.get("flag"))
-    for hit in pharmgkb_hits:
-        if isinstance(hit, dict):
-            add(hit.get("pmid", ""), hit.get("finding"))
-    for article in pubmed_hits:
-        add(article.get("pmid", ""), article.get("title"))
     return out
 
 

@@ -189,18 +189,31 @@ function SnpTable({ snps }) {
   );
 }
 
-function TrialsCard({ trials }) {
+function TrialsCard({ trials, trialMeta }) {
   if (!trials || !trials.length) {
     return (
       <div className="agent-card trials">
         <header>🧪 Matching trials</header>
-        <div className="empty">No matching trials found</div>
+        {trialMeta?.detail ? (
+          <p className="trial-api-note">{trialMeta.detail}</p>
+        ) : null}
+        <div className="empty">No recruiting trials matched (live ClinicalTrials.gov search)</div>
       </div>
     );
   }
   return (
     <div className="agent-card trials">
       <header>🧪 Matching trials ({trials.length})</header>
+      {trialMeta?.status && trialMeta.status !== 'ok' ? (
+        <p className="trial-api-note">
+          API status: <strong>{trialMeta.status}</strong>
+          {trialMeta.detail ? ` — ${trialMeta.detail}` : ''}
+        </p>
+      ) : (
+        <p className="trial-api-note subtle">
+          Pulled live from ClinicalTrials.gov (recruiting T2D studies; gene + location filters).
+        </p>
+      )}
       <ul className="trial-list">
         {trials.map((t) => (
           <li key={t.nct_id}>
@@ -225,14 +238,20 @@ function CitationsCard({ citations }) {
   if (!citations || !citations.length) return null;
   return (
     <div className="agent-card citations">
-      <header>📚 Citations ({citations.length})</header>
+      <header>📚 Evidence used in this brief ({citations.length})</header>
+      <p className="citation-intro">
+        Only PMIDs tied to the recommendation or fired safety gates — each with a short inference.
+      </p>
       <ul className="citation-list">
         {citations.map((c) => (
           <li key={c.pmid}>
-            <a href={c.url} target="_blank" rel="noreferrer">
-              PMID {c.pmid}
-            </a>
-            {c.title ? ` — ${c.title}` : ''}
+            <div className="citation-head">
+              <a href={c.url} target="_blank" rel="noreferrer">
+                PMID {c.pmid}
+              </a>
+              {c.title ? <span className="citation-title"> — {c.title}</span> : null}
+            </div>
+            {c.inference ? <div className="citation-inference">{c.inference}</div> : null}
           </li>
         ))}
       </ul>
@@ -304,7 +323,7 @@ export default function AgentBrief({ brief, patient }) {
       </div>
 
       <SnpTable snps={brief.snp_summary} />
-      <TrialsCard trials={brief.trial_matches} />
+      <TrialsCard trials={brief.trial_matches} trialMeta={brief.trial_search_meta} />
       <CitationsCard citations={brief.citations} />
 
       <ToolTrace trace={trace} backend={backend} error={error} />

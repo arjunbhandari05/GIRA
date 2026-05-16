@@ -94,8 +94,8 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "fetch_clinvar",
         "description": (
-            "Get clinical significance for a list of rsIDs — pathogenic, benign, "
-            "risk factor, drug response, or VUS."
+            "Get clinical significance for rsIDs from live NCBI ClinVar (esearch+esummary). "
+            "Returns variants plus _meta with API status — never invent pathogenicity."
         ),
         "parameters": {"rsids": "array of rsID strings"},
         "fn": _wrap(fetch_clinvar),
@@ -103,8 +103,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "fetch_pubmed",
         "description": (
-            "Get top abstracts and real PMIDs for a gene-drug pair. Call this for every "
-            "claim you make. Never output a recommendation without a citation."
+            "Live PubMed search for a gene + drug pair (NCBI E-utilities). "
+            "Returns articles with PMIDs, titles, and evidence_note. "
+            "Use for citations; do not invent PMIDs."
         ),
         "parameters": {"gene": "string", "drug": "string"},
         "fn": _wrap(fetch_pubmed),
@@ -122,8 +123,9 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "fetch_trials",
         "description": (
-            "Find active recruiting trials matching a gene and zip code. Call if you "
-            "find TCF7L2 TT, FTO AA, or APOE4."
+            "Live ClinicalTrials.gov search: recruiting type-2-diabetes studies, "
+            "optionally near zip_code, filtered to studies mentioning the requested gene(s). "
+            "Returns trials plus _meta (status ok|empty|error). Never fabricate NCT numbers."
         ),
         "parameters": {"gene": "string", "zip_code": "string"},
         "fn": _wrap(fetch_trials),

@@ -263,3 +263,21 @@ h1 { letter-spacing: -0.04em; }
 }
 .tt-flag.critical { background: #1a0f12; color: #fca5a5; }
 .tt-flag.warning { background: #1a1610; color: #fbbf24; }
+
+/* Tool trace — status + live source */
+.tt-inline-detail { font-size: 0.78rem; color: #94a3b8; padding: 6px 0 0 40px; line-height: 1.35; }
+.tt-pill.tt-status { text-transform: lowercase; }
+.tt-pill.tt-ok { background: #134e4a; color: #5eead4; }
+.tt-pill.tt-empty { background: #422006; color: #fdba74; }
+.tt-pill.tt-error { background: #450a0a; color: #fca5a5; }
+.tt-pill.tt-partial { background: #3b2f05; color: #fde047; }
+.tt-pill.tt-src { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-pill.warn { background: #4a1d1d; color: #fecaca; }
+
+.citation-intro { margin: 0 0 10px 0; color: #94a3b8; font-size: 0.88rem; }
+.citation-head { font-size: 0.9rem; }
+.citation-title { color: #cbd5e1; }
+.citation-inference { margin-top: 6px; padding: 8px 10px; background: #0a0a12; border-radius: 8px; border-left: 3px solid #6366f1; font-size: 0.84rem; color: #e2e8f0; line-height: 1.45; }
+
+.trial-api-note { margin: 0 0 12px 0; font-size: 0.82rem; color: #94a3b8; line-height: 1.4; }
+.trial-api-note.subtle { color: #64748b; }

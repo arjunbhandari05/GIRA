@@ -3,37 +3,21 @@
 import asyncio
 import os
 import ssl
+import time
+from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
 import certifi
+import requests
+
+from apis.ncbi_util import ncbi_params
 
 
 def _ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
-CLINVAR_STATIC = {
-    "rs7903146": {"clinical_significance": "risk factor", "condition": "Type 2 diabetes mellitus susceptibility"},
-    "rs622342": {"clinical_significance": "drug response", "condition": "Metformin response, transporter"},
-    "rs5219": {"clinical_significance": "risk factor", "condition": "Type 2 diabetes / sulfonylurea response"},
-    "rs1801282": {"clinical_significance": "drug response", "condition": "Thiazolidinedione response"},
-    "rs757110": {"clinical_significance": "drug response", "condition": "Sulfonylurea response (ABCC8/SUR1)"},
-    "rs9939609": {"clinical_significance": "risk factor", "condition": "Obesity / GLP-1 weight response"},
-    "rs4149056": {"clinical_significance": "drug response", "condition": "Statin-induced myopathy susceptibility"},
-    "rs429358": {"clinical_significance": "risk factor", "condition": "APOE4 cardiovascular disease risk"},
-    "rs4244285": {"clinical_significance": "drug response", "condition": "Clopidogrel poor metabolizer (CYP2C19*2)"},
-    "rs9923231": {"clinical_significance": "drug response", "condition": "Warfarin sensitivity (VKORC1)"},
-}
-
 BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-
-
-def _params(extra: dict) -> dict:
-    return {
-        "email": os.getenv("NCBI_EMAIL", "glycoagent@example.com"),
-        "tool": "glycoagent",
-        **extra,
-    }
 
 
 def _rate_limited(status: int) -> bool:
@@ -64,7 +48,7 @@ async def get_clinvar(rsid: str, session: aiohttp.ClientSession) -> dict:
     ssl_kwargs = {"ssl": _ssl_context()}
     try:
         search_url = BASE_URL + "esearch.fcgi?" + urlencode(
-            _params({"db": "clinvar", "term": f"{rsid}[rs]", "retmode": "json"})
+            ncbi_params({"db": "clinvar", "term": f"{rsid}[rs]", "retmode": "json"})
         )
         async with session.get(search_url, **ssl_kwargs) as resp:
             if _rate_limited(resp.status):
@@ -81,7 +65,7 @@ async def get_clinvar(rsid: str, session: aiohttp.ClientSession) -> dict:
 
         uid = uids[0]
         summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
-            _params({"db": "clinvar", "id": uid, "retmode": "json"})
+            ncbi_params({"db": "clinvar", "id": uid, "retmode": "json"})
         )
         async with session.get(summary_url, **ssl_kwargs) as resp:
             if _rate_limited(resp.status):
@@ -134,35 +118,101 @@ def _clinical_significance(result: dict) -> str:
     return "unknown"
 
 
-def fetch_clinvar(rsids: list[str] | str | None = None, **_kwargs) -> list[dict]:
+def _get_clinvar_http(rsid: str) -> dict:
+    """One rsID via NCBI esearch + esummary (sync, ~2 HTTP round-trips)."""
+    rs = rsid.strip()
+    if not rs:
+        return _not_found("")
+
+    search_url = BASE_URL + "esearch.fcgi?" + urlencode(
+        ncbi_params({"db": "clinvar", "term": f"{rs}[rs]", "retmode": "json"})
+    )
+    try:
+        r = requests.get(search_url, timeout=35, verify=certifi.where())
+        if _rate_limited(r.status_code):
+            return _rate_limited_result(rs)
+        if r.status_code != 200:
+            return _not_found(rs)
+        search_payload = r.json()
+    except Exception:
+        return {
+            "source": "ClinVar",
+            "rsid": rs,
+            "clinical_significance": "unknown",
+            "condition": "n/a",
+            "evidence_url": f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rs}",
+        }
+
+    uids = (search_payload.get("esearchresult") or {}).get("idlist") or []
+    if not uids:
+        return _not_found(rs)
+
+    time.sleep(0.11)
+    uid = uids[0]
+    summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
+        ncbi_params({"db": "clinvar", "id": uid, "retmode": "json"})
+    )
+    try:
+        r2 = requests.get(summary_url, timeout=35, verify=certifi.where())
+        if _rate_limited(r2.status_code):
+            return _rate_limited_result(rs)
+        if r2.status_code != 200:
+            return _not_found(rs)
+        summary_payload = r2.json()
+    except Exception:
+        return {
+            "source": "ClinVar",
+            "rsid": rs,
+            "clinical_significance": "unknown",
+            "condition": "n/a",
+            "evidence_url": f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rs}",
+        }
+
+    result = (summary_payload.get("result") or {}).get(uid) or {}
+    return {
+        "source": "ClinVar",
+        "rsid": rs,
+        "clinical_significance": _clinical_significance(result),
+        "condition": _condition(result),
+        "evidence_url": f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rs}",
+    }
+
+
+def fetch_clinvar(rsids: list[str] | str | None = None, **_kwargs: Any) -> dict[str, Any]:
     """
-    Tool entrypoint. Synchronous, no network — uses the curated table above
-    so the agent loop is fast and deterministic. The async `get_clinvar` is
-    still available for FastAPI's /apis path that hits NCBI live.
+    Agent tool entrypoint — live NCBI ClinVar (no static lookup table).
+
+    Returns ``{"variants": [...], "_meta": {source, status, detail}}``.
     """
+    meta: dict[str, Any] = {"source": "ncbi_clinvar", "status": "ok", "detail": None}
     if not rsids:
-        return []
-    if isinstance(rsids, str):
-        rsids = [rsids]
+        return {
+            "variants": [],
+            "_meta": {**meta, "status": "empty", "detail": "No rsids provided."},
+        }
+    seq = [rsids] if isinstance(rsids, str) else list(rsids)
+
     out: list[dict] = []
-    for rsid in rsids:
-        rs = rsid.strip()
+    errors: list[str] = []
+    for raw in seq:
+        rs = str(raw).strip()
         if not rs:
             continue
-        info = CLINVAR_STATIC.get(rs)
-        if info:
-            out.append(
-                {
-                    "source": "ClinVar",
-                    "rsid": rs,
-                    "clinical_significance": info["clinical_significance"],
-                    "condition": info["condition"],
-                    "evidence_url": f"https://www.ncbi.nlm.nih.gov/clinvar/?term={rs}",
-                }
-            )
-        else:
-            out.append(_not_found(rs))
-    return out
+        try:
+            row = _get_clinvar_http(rs)
+            out.append(row)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{rs}:{exc}")
+        time.sleep(0.11)
+
+    if errors:
+        meta["status"] = "partial" if out else "error"
+        meta["detail"] = "; ".join(errors)[:800]
+    if not out:
+        meta["status"] = "empty" if not errors else meta["status"]
+        meta["detail"] = meta.get("detail") or "No ClinVar variants returned."
+
+    return {"variants": out, "_meta": meta}
 
 
 def _condition(result: dict) -> str:

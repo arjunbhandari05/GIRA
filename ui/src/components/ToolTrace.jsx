@@ -108,16 +108,28 @@ export default function ToolTrace({ trace = [], backend, error }) {
           return (
             <li
               key={step.step}
-              className={`tt-step ${open ? 'open' : ''} ${step.deterministic ? 'fallback' : ''}`}
+              className={`tt-step ${open ? 'open' : ''} ${step.plan_fallback ? 'fallback' : ''}`}
               onClick={() => setOpenStep(open ? null : step.step)}
             >
               <div className="tt-row">
                 <span className="tt-num">#{step.step}</span>
                 <span className="tt-name">{label}</span>
                 <span className="tt-tool-id">{step.tool}</span>
-                {step.deterministic ? <span className="tt-pill">fallback</span> : null}
+                {step.status ? (
+                  <span className={`tt-pill tt-status tt-${step.status}`}>{step.status}</span>
+                ) : null}
+                {step.data_source ? (
+                  <span className="tt-pill tt-src" title="Where data came from">
+                    {step.data_source}
+                  </span>
+                ) : null}
+                {step.plan_fallback ? <span className="tt-pill">plan</span> : null}
+                {step.agent_wide_fallback ? <span className="tt-pill warn">agent fallback</span> : null}
                 {step.auto_invoked ? <span className="tt-pill">enforced</span> : null}
               </div>
+              {step.detail ? (
+                <div className="tt-inline-detail">{step.detail}</div>
+              ) : null}
               {open ? (
                 <div className="tt-body">
                   <div className="tt-section">

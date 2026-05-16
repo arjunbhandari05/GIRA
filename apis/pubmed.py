@@ -2,82 +2,28 @@
 
 import os
 import ssl
+import time
+from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
 import certifi
+import requests
+
+from apis.ncbi_util import ncbi_params
 
 
 def _ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context(cafile=certifi.where())
 
-PUBMED_STATIC = {
-    ("TCF7L2", "metformin"): [
-        {"pmid": "29326107", "title": "TCF7L2 variant and metformin response in T2D"},
-        {"pmid": "17327445", "title": "TCF7L2 polymorphism and treatment response"},
-    ],
-    ("TCF7L2", "semaglutide"): [
-        {"pmid": "38421109", "title": "Semaglutide outcomes in TCF7L2 carriers — STEP-T2D substudy"},
-        {"pmid": "36546765", "title": "GLP-1 receptor agonists in metformin non-responders"},
-    ],
-    ("TCF7L2", "GLP-1"): [
-        {"pmid": "38421109", "title": "Semaglutide outcomes in TCF7L2 carriers — STEP-T2D substudy"},
-    ],
-    ("SLC22A1", "metformin"): [
-        {"pmid": "21378095", "title": "OCT1 variants reduce hepatic metformin transport"},
-    ],
-    ("SLCO1B1", "atorvastatin"): [
-        {"pmid": "18987363", "title": "SLCO1B1 c.521T>C and statin myopathy risk — SEARCH study"},
-    ],
-    ("SLCO1B1", "statin"): [
-        {"pmid": "18987363", "title": "SLCO1B1 c.521T>C and statin myopathy risk — SEARCH study"},
-    ],
-    ("SLCO1B1", "pravastatin"): [
-        {"pmid": "18987363", "title": "SLCO1B1 c.521T>C and statin myopathy risk — SEARCH study"},
-    ],
-    ("CYP2C19", "clopidogrel"): [
-        {"pmid": "19106084", "title": "CYP2C19*2 carriers — reduced clopidogrel response"},
-        {"pmid": "20979470", "title": "Clopidogrel pharmacogenomics — FDA boxed warning"},
-    ],
-    ("VKORC1", "warfarin"): [
-        {"pmid": "17898316", "title": "VKORC1 haplotype and warfarin dose requirement"},
-    ],
-    ("KCNJ11", "sulfonylurea"): [
-        {"pmid": "17327445", "title": "KCNJ11 E23K and sulfonylurea response"},
-    ],
-    ("PPARG", "thiazolidinedione"): [
-        {"pmid": "15983207", "title": "PPARG Pro12Ala and TZD insulin sensitivity"},
-    ],
-    ("ABCC8", "sulfonylurea"): [
-        {"pmid": "16936230", "title": "ABCC8 (SUR1) variants and sulfonylurea binding"},
-    ],
-    ("FTO", "GLP-1 agonist"): [
-        {"pmid": "23334450", "title": "FTO genotype and weight response to GLP-1 agonists"},
-    ],
-    ("FTO", "semaglutide"): [
-        {"pmid": "23334450", "title": "FTO genotype and weight response to GLP-1 agonists"},
-    ],
-    ("APOE", "statin"): [
-        {"pmid": "19706793", "title": "APOE4 carriers — differential statin response"},
-    ],
-}
-
 BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-
-
-def _params(extra: dict) -> dict:
-    return {
-        "email": os.getenv("NCBI_EMAIL", "glycoagent@example.com"),
-        "tool": "glycoagent",
-        **extra,
-    }
 
 
 async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
     ssl_kwargs = {"ssl": _ssl_context()}
     try:
         search_url = BASE_URL + "esearch.fcgi?" + urlencode(
-            _params(
+            ncbi_params(
                 {
                     "db": "pubmed",
                     "term": query,
@@ -96,7 +42,7 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
             return []
 
         fetch_url = BASE_URL + "efetch.fcgi?" + urlencode(
-            _params(
+            ncbi_params(
                 {
                     "db": "pubmed",
                     "id": ",".join(pmids),
@@ -116,7 +62,7 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
                     pass
 
         summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
-            _params(
+            ncbi_params(
                 {
                     "db": "pubmed",
                     "id": ",".join(pmids),
@@ -134,21 +80,150 @@ async def get_pubmed(query: str, session: aiohttp.ClientSession) -> list:
         return []
 
 
-def fetch_pubmed(gene: str | None = None, drug: str | None = None, **_kwargs) -> list[dict]:
+def _evidence_note(gene: str, drug: str, title: str) -> str:
+    t = (title or "").strip()
+    if len(t) > 220:
+        t = t[:217] + "…"
+    return (
+        f"PubMed retrieval for {gene.upper()} + “{drug}”: this paper was returned "
+        f"by NCBI for that query — {t or 'title unavailable from summary.'}"
+    )
+
+
+def _pubmed_search_http(term: str, retmax: int = 4) -> tuple[list[str], dict[str, Any]]:
+    meta: dict[str, Any] = {"source": "pubmed", "status": "ok", "detail": None, "query": term}
+    search_url = BASE_URL + "esearch.fcgi?" + urlencode(
+        ncbi_params(
+            {
+                "db": "pubmed",
+                "term": term,
+                "retmax": str(retmax),
+                "retmode": "json",
+            }
+        )
+    )
+    try:
+        r = requests.get(search_url, timeout=35, verify=certifi.where())
+        r.raise_for_status()
+        search_payload = r.json()
+    except Exception as exc:  # noqa: BLE001
+        meta["status"] = "error"
+        meta["detail"] = str(exc)[:500]
+        return [], meta
+
+    pmids = (search_payload.get("esearchresult") or {}).get("idlist") or []
+    if not pmids:
+        meta["status"] = "empty"
+        meta["detail"] = "NCBI esearch returned zero PMIDs for this query."
+        return [], meta
+    return pmids, meta
+
+
+def _pubmed_summaries_http(pmids: list[str]) -> dict[str, dict]:
+    """pmid -> {pmid, title, url} using esummary (sync)."""
+    if not pmids:
+        return {}
+    summary_url = BASE_URL + "esummary.fcgi?" + urlencode(
+        ncbi_params({"db": "pubmed", "id": ",".join(pmids), "retmode": "json"})
+    )
+    try:
+        r = requests.get(summary_url, timeout=35, verify=certifi.where())
+        r.raise_for_status()
+        summary_payload = r.json()
+    except Exception:
+        return {
+            p: {"pmid": p, "title": "", "url": f"https://pubmed.ncbi.nlm.nih.gov/{p}/"}
+            for p in pmids
+        }
+
+    results = summary_payload.get("result") or {}
+    out: dict[str, dict] = {}
+    for pmid in pmids:
+        article = results.get(pmid) or {}
+        title = str(article.get("title", "")).strip()
+        out[pmid] = {
+            "pmid": pmid,
+            "title": title,
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        }
+    return out
+
+
+def fetch_pubmed_articles_for_pmids(pmids: list[str]) -> dict[str, Any]:
     """
-    Tool entrypoint. Returns curated PMIDs for a gene-drug pair so the agent
-    can cite real evidence without making a live NCBI call on every iteration.
+    Resolve titles for specific PMIDs (used when assembling citations that
+    reference PMIDs not returned by the prior gene+drug searches).
     """
+    meta: dict[str, Any] = {"source": "pubmed", "status": "ok", "detail": None}
+    clean = [str(p).strip() for p in pmids if p and str(p).strip()]
+    if not clean:
+        return {"articles": [], "_meta": {**meta, "status": "empty", "detail": "No PMIDs"}}
+    time.sleep(0.11)
+    by_id = _pubmed_summaries_http(clean[:20])
+    articles = []
+    for pmid in clean[:20]:
+        row = by_id.get(pmid) or {
+            "pmid": pmid,
+            "title": "",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        }
+        articles.append(
+            {
+                **row,
+                "evidence_note": (
+                    f"PubMed record PMID {pmid}: title pulled live from NCBI esummary "
+                    f"for citation packaging in the brief."
+                ),
+            }
+        )
+    return {"articles": articles, "_meta": meta}
+
+
+def fetch_pubmed(gene: str | None = None, drug: str | None = None, **_kwargs: Any) -> dict[str, Any]:
+    """
+    Agent tool entrypoint — live NCBI esearch + esummary (no static PMID table).
+
+    Returns ``{"articles": [...], "_meta": {...}}``; each article includes
+    ``evidence_note`` describing why the row is relevant to the gene+drug query.
+    """
+    meta: dict[str, Any] = {"source": "pubmed", "status": "ok", "detail": None}
     if not gene or not drug:
-        return []
-    key = (gene.upper(), drug.lower())
-    for (g, d), articles in PUBMED_STATIC.items():
-        if g.upper() == gene.upper() and d.lower() == drug.lower():
-            return [
-                {**a, "url": f"https://pubmed.ncbi.nlm.nih.gov/{a['pmid']}/"}
-                for a in articles
-            ]
-    return []
+        return {
+            "articles": [],
+            "_meta": {**meta, "status": "error", "detail": "Both gene and drug are required."},
+        }
+
+    g = str(gene).strip()
+    d = str(drug).strip()
+    term = f"({g}[Title/Abstract]) AND ({d}[Title/Abstract])"
+    pmids, search_meta = _pubmed_search_http(term, retmax=4)
+    meta["query"] = term
+    if search_meta.get("status") != "ok":
+        meta.update(search_meta)
+        return {"articles": [], "_meta": meta}
+
+    time.sleep(0.11)
+    by_id = _pubmed_summaries_http(pmids)
+    articles: list[dict[str, Any]] = []
+    for pmid in pmids:
+        row = by_id.get(pmid) or {
+            "pmid": pmid,
+            "title": "",
+            "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/",
+        }
+        articles.append(
+            {
+                **row,
+                "gene": g,
+                "drug": d,
+                "evidence_note": _evidence_note(g, d, row.get("title") or ""),
+            }
+        )
+
+    if not articles:
+        meta["status"] = "empty"
+        meta["detail"] = "No PubMed articles for this gene+drug query."
+    return {"articles": articles, "_meta": meta}
 
 
 def _articles_from_efetch_json(pmids: list[str], payload: dict) -> list:

@@ -45,6 +45,93 @@ def _log(msg: str) -> None:
         print(msg, file=sys.stderr, flush=True)
 
 
+def _infer_tool_status(tool: str, result: Any) -> tuple[str, str, str | None, bool]:
+    """
+    Returns (data_source, status, detail, partial) for agent reasoning trail.
+    status: ok | error | empty | partial
+    """
+    partial = False
+    if isinstance(result, dict) and result.get("error"):
+        return ("tool", "error", str(result["error"])[:500], False)
+
+    if tool in ("fetch_trials", "fetch_pubmed", "fetch_clinvar"):
+        if not isinstance(result, dict):
+            return ("unknown", "ok", None, False)
+        meta = result.get("_meta") or {}
+        src = str(meta.get("source") or tool)
+        st = str(meta.get("status") or "ok")
+        detail = meta.get("detail")
+        if isinstance(detail, str):
+            detail = detail[:600]
+        else:
+            detail = None
+        if st == "partial":
+            partial = True
+        return (src, st, detail, partial)
+
+    if tool == "fetch_glucose" and isinstance(result, dict):
+        if result.get("error"):
+            return ("cgm", "error", str(result["error"])[:300], False)
+        return ("cgm_dataset", "ok", None, False)
+
+    if tool == "fetch_whoop" and isinstance(result, dict):
+        if result.get("error"):
+            return ("whoop", "error", str(result["error"])[:300], False)
+        return ("whoop_dataset", "ok", None, False)
+
+    if tool == "get_snp_profile" and isinstance(result, dict):
+        if result.get("error"):
+            return ("genome", "error", str(result["error"])[:300], False)
+        return ("genome_file_or_db", "ok", None, False)
+
+    if isinstance(result, list):
+        if not result:
+            return ("tool", "empty", "Tool returned an empty list.", False)
+        return ("tool", "ok", None, False)
+
+    if isinstance(result, dict):
+        return ("tool", "ok", None, False)
+
+    return ("tool", "ok", None, False)
+
+
+def _trace_step_record(
+    tool: str,
+    args_summary: dict[str, Any],
+    result: Any,
+    *,
+    deterministic: bool = False,
+    auto_invoked: bool = False,
+    agent_wide_fallback: bool = False,
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
+    src, status, detail, partial = _infer_tool_status(tool, result)
+    row: dict[str, Any] = {
+        "tool": tool,
+        "args_summary": args_summary,
+        "result_summary": _summarize_result(tool, result),
+        "plan_fallback": deterministic,
+        "data_source": src,
+        "status": status,
+        "partial": partial,
+    }
+    if detail:
+        row["detail"] = detail
+    if auto_invoked:
+        row["auto_invoked"] = True
+    if agent_wide_fallback and fallback_reason:
+        row["agent_wide_fallback"] = True
+        row["detail"] = {
+            "no_llm": "No LLM backend reachable — running the full deterministic tool plan.",
+            "max_iter": "LLM hit max_iterations — completing remaining tools deterministically.",
+            "model_error": "LLM request failed — completing remaining tools deterministically.",
+        }.get(
+            fallback_reason,
+            "Deterministic tool plan used to complete the brief.",
+        )
+    return row
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Round 5: legacy single-shot prompt path (used by FastAPI /brief)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -188,7 +275,9 @@ async def run_with_tools(
     if backend == "none":
         _log("[nemotron] no LLM reachable — using deterministic fallback plan")
         return _attach_trace(
-            _deterministic_plan(patient_id, patient, tools_by_name, findings, trace),
+            _deterministic_plan(
+                patient_id, patient, tools_by_name, findings, trace, run_reason="no_llm"
+            ),
             trace,
             backend,
         )
@@ -199,7 +288,14 @@ async def run_with_tools(
         except Exception as exc:
             _log(f"[nemotron] model call failed at iter {iteration + 1}: {exc}")
             return _attach_trace(
-                _deterministic_plan(patient_id, patient, tools_by_name, findings, trace),
+                _deterministic_plan(
+                    patient_id,
+                    patient,
+                    tools_by_name,
+                    findings,
+                    trace,
+                    run_reason="model_error",
+                ),
                 trace,
                 backend,
                 error=str(exc),
@@ -239,15 +335,14 @@ async def run_with_tools(
                     "generate_brief", {"all_findings": findings}, findings, patient
                 )
                 forced = _execute_tool("generate_brief", forced_args, tools_by_name)
-                trace.append(
-                    {
-                        "step": len(trace) + 1,
-                        "tool": "generate_brief",
-                        "args_summary": _summarize_args(forced_args),
-                        "result_summary": _summarize_result("generate_brief", forced),
-                        "auto_invoked": True,
-                    }
+                tr = _trace_step_record(
+                    "generate_brief",
+                    _summarize_args(forced_args),
+                    forced,
+                    auto_invoked=True,
                 )
+                tr["step"] = len(trace) + 1
+                trace.append(tr)
                 findings["generate_brief"] = forced
                 return _attach_trace(forced, trace, backend)
             return _attach_trace(findings["generate_brief"], trace, backend)
@@ -304,14 +399,9 @@ async def run_with_tools(
         result = _execute_tool(name, args, tools_by_name)
         findings[name] = result
         call_counts[name] = call_counts.get(name, 0) + 1
-        trace.append(
-            {
-                "step": len(trace) + 1,
-                "tool": name,
-                "args_summary": _summarize_args(args),
-                "result_summary": _summarize_result(name, result),
-            }
-        )
+        tr = _trace_step_record(name, _summarize_args(args), result, deterministic=False)
+        tr["step"] = len(trace) + 1
+        trace.append(tr)
 
         if name == "check_safety_flags":
             safety_checked = True
@@ -333,7 +423,14 @@ async def run_with_tools(
 
     _log("[nemotron] max iterations reached — falling back to deterministic plan")
     return _attach_trace(
-        _deterministic_plan(patient_id, patient, tools_by_name, findings, trace),
+        _deterministic_plan(
+            patient_id,
+            patient,
+            tools_by_name,
+            findings,
+            trace,
+            run_reason="max_iter",
+        ),
         trace,
         backend,
         error="max_iterations",
@@ -550,6 +647,7 @@ def _deterministic_plan(
     tools_by_name: dict[str, dict[str, Any]],
     findings: dict[str, Any],
     trace: list[dict[str, Any]] | None = None,
+    run_reason: str | None = None,
 ) -> dict[str, Any]:
     snp_profile = patient.get("snp_profile") or {}
     primary_rsids = ["rs7903146", "rs622342", "rs4149056", "rs4244285", "rs9939609"]
@@ -561,43 +659,85 @@ def _deterministic_plan(
         ("CYP2C19", "clopidogrel"),
     ]
 
+    first_fallback_note = True
+
     def _note(tool_name: str, args: dict, result: Any) -> None:
+        nonlocal first_fallback_note
         if trace is None:
             return
-        trace.append(
-            {
-                "step": len(trace) + 1,
-                "tool": tool_name,
-                "args_summary": _summarize_args(args),
-                "result_summary": _summarize_result(tool_name, result),
-                "deterministic": True,
-            }
+        aw = bool(run_reason and first_fallback_note)
+        fr = run_reason if aw else None
+        first_fallback_note = False
+        rec = _trace_step_record(
+            tool_name,
+            _summarize_args(args),
+            result,
+            deterministic=True,
+            agent_wide_fallback=aw,
+            fallback_reason=fr,
         )
+        rec["step"] = len(trace) + 1
+        trace.append(rec)
 
     for tool_name in DETERMINISTIC_PLAN:
         if tool_name == "fetch_pubmed":
             collected: list[dict] = []
+            last_meta: dict[str, Any] = {}
             for gene, drug in pubmed_pairs:
                 args = {"gene": gene, "drug": drug}
                 got = _execute_tool("fetch_pubmed", args, tools_by_name)
-                if isinstance(got, list):
+                if isinstance(got, dict):
+                    collected.extend(got.get("articles") or [])
+                    last_meta = got.get("_meta") or last_meta
+                elif isinstance(got, list):
                     collected.extend(got)
                 _note("fetch_pubmed", args, got)
-            findings["fetch_pubmed"] = collected
+            findings["fetch_pubmed"] = {"articles": collected, "_meta": last_meta}
             continue
 
         if tool_name == "fetch_trials":
-            trials: list[dict] = []
+            trials_acc: list[dict] = []
+            seen_nct: set[str] = set()
+            merged_meta: dict[str, Any] = {
+                "source": "clinicaltrials.gov",
+                "status": "ok",
+                "detail": None,
+            }
             for gene in primary_genes:
                 args = {
                     "gene": gene,
                     "zip_code": patient.get("zip_code") or patient.get("zip", ""),
                 }
                 got = _execute_tool("fetch_trials", args, tools_by_name)
-                if isinstance(got, list):
-                    trials.extend(got)
                 _note("fetch_trials", args, got)
-            findings["fetch_trials"] = trials
+                rows: list[dict] = []
+                if isinstance(got, dict):
+                    rows = [t for t in (got.get("trials") or []) if isinstance(t, dict)]
+                    meta = got.get("_meta") or {}
+                    if meta.get("status") == "error":
+                        merged_meta["status"] = "error"
+                        merged_meta["detail"] = meta.get("detail")
+                    elif meta.get("status") == "empty" and merged_meta.get("status") == "ok":
+                        merged_meta.setdefault("_empty_notes", []).append(
+                            f"{gene}: {meta.get('detail')}"
+                        )
+                elif isinstance(got, list):
+                    rows = [t for t in got if isinstance(t, dict)]
+                for t in rows:
+                    nid = t.get("nct_id")
+                    if nid and nid not in seen_nct:
+                        seen_nct.add(nid)
+                        trials_acc.append(t)
+            if not trials_acc and merged_meta.get("status") == "ok":
+                merged_meta["status"] = "empty"
+                merged_meta["detail"] = (
+                    "No recruiting trials from ClinicalTrials.gov matched the "
+                    "gene + type-2-diabetes filters for the scanned genes."
+                )
+            findings["fetch_trials"] = {
+                "trials": trials_acc[:8],
+                "_meta": merged_meta,
+            }
             continue
 
         if tool_name == "fetch_clinvar":
@@ -702,20 +842,54 @@ def _summarize_result(name: str, result: Any) -> dict[str, Any]:
             "genes": [r.get("gene") for r in result if isinstance(r, dict)][:10],
         }
 
-    if name == "fetch_clinvar" and isinstance(result, list):
+    if name == "fetch_clinvar":
+        if isinstance(result, dict) and "variants" in result:
+            vars_ = [v for v in (result.get("variants") or []) if isinstance(v, dict)]
+            meta = result.get("_meta") or {}
+            return {
+                "hits": len(vars_),
+                "significance": [
+                    f"{r.get('rsid')}={r.get('clinical_significance')}"
+                    for r in vars_
+                ][:6],
+                "api_status": meta.get("status"),
+            }
+        if isinstance(result, list):
+            return {
+                "hits": len(result),
+                "significance": [
+                    f"{r.get('rsid')}={r.get('clinical_significance')}"
+                    for r in result
+                    if isinstance(r, dict)
+                ][:6],
+            }
+
+    if name == "fetch_pubmed":
+        arts: list[Any] = []
+        pmeta: dict[str, Any] = {}
+        if isinstance(result, dict):
+            arts = [a for a in (result.get("articles") or []) if isinstance(a, dict)]
+            pmeta = result.get("_meta") or {}
+        elif isinstance(result, list):
+            arts = [a for a in result if isinstance(a, dict)]
         return {
-            "hits": len(result),
-            "significance": [
-                f"{r.get('rsid')}={r.get('clinical_significance')}"
-                for r in result
-                if isinstance(r, dict)
-            ][:6],
+            "hits": len(arts),
+            "pmids": [r.get("pmid") for r in arts][:6],
+            "api_status": pmeta.get("status"),
         }
 
-    if name == "fetch_pubmed" and isinstance(result, list):
+    if name == "fetch_trials":
+        rows: list[Any] = []
+        tmeta: dict[str, Any] = {}
+        if isinstance(result, dict):
+            rows = [t for t in (result.get("trials") or []) if isinstance(t, dict)]
+            tmeta = result.get("_meta") or {}
+        elif isinstance(result, list):
+            rows = [t for t in result if isinstance(t, dict)]
         return {
-            "hits": len(result),
-            "pmids": [r.get("pmid") for r in result if isinstance(r, dict)][:6],
+            "matches": len(rows),
+            "ncts": [r.get("nct_id") for r in rows if isinstance(r, dict)][:6],
+            "api_status": tmeta.get("status"),
         }
 
     if name == "fetch_rxnorm" and isinstance(result, list):
@@ -728,12 +902,6 @@ def _summarize_result(name: str, result: Any) -> dict[str, Any]:
                     if isinstance(r, dict) and r.get("drug")
                 }
             )[:6],
-        }
-
-    if name == "fetch_trials" and isinstance(result, list):
-        return {
-            "matches": len(result),
-            "ncts": [r.get("nct_id") for r in result if isinstance(r, dict)][:6],
         }
 
     if name == "check_safety_flags" and isinstance(result, list):
