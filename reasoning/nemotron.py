@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -28,12 +29,19 @@ load_dotenv(ROOT / ".env", override=True)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 OPENROUTER_AGENT_MODEL = os.getenv("OPENROUTER_AGENT_MODEL", OPENROUTER_MODEL)
-ERROR_TEXT = "Reasoning unavailable — check OPENROUTER_API_KEY"
+ERROR_TEXT = "Reasoning unavailable — set NVIDIA_API_KEY or OPENROUTER_API_KEY in .env"
 
+NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "nemotron-mini")
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
-NIM_MODEL = os.getenv("NIM_MODEL", "nvidia/nemotron-mini-4b-instruct")
+NIM_MODEL = os.getenv(
+    "NIM_MODEL", "nvidia/llama-3.3-nemotron-super-49b-v1.5"
+)
+NIM_MAX_TOKENS = int(os.getenv("NIM_MAX_TOKENS", "4096"))
+NIM_TIMEOUT_SEC = int(os.getenv("NIM_TIMEOUT_SEC", "300"))
+# auto | nim | openrouter | ollama — when auto, NIM wins if NVIDIA_API_KEY is set
+LLM_BACKEND = os.getenv("LLM_BACKEND", "auto").strip().lower()
 
 MAX_ITERATIONS = int(os.getenv("AGENT_MAX_ITERATIONS", "12"))
 MAX_CALLS_PER_TOOL = int(os.getenv("AGENT_MAX_CALLS_PER_TOOL", "3"))
@@ -138,47 +146,26 @@ def _trace_step_record(
 
 
 async def run_nemotron(context_prompt: str) -> str:
-    key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not key:
+    messages = [
+        {"role": "system", "content": build_system_prompt()},
+        {"role": "user", "content": context_prompt},
+    ]
+    backend = _detect_backend()
+    if backend == "none":
         return ERROR_TEXT
 
-    payload = {
-        "model": OPENROUTER_MODEL,
-        "max_tokens": 1000,
-        "messages": [
-            {"role": "system", "content": build_system_prompt()},
-            {"role": "user", "content": context_prompt},
-        ],
-    }
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/glycoagent",
-        "X-Title": "GlycoAgent",
-    }
-
     try:
-        timeout = aiohttp.ClientTimeout(total=120)
-        connector = aiohttp.TCPConnector(ssl=_ssl_context())
-        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-            async with session.post(OPENROUTER_URL, headers=headers, json=payload) as resp:
-                if resp.status >= 400:
-                    body = await resp.text()
-                    _log(f"[run_nemotron] HTTP {resp.status}: {body[:200]}")
-                    return ERROR_TEXT
-                data = await resp.json()
-
-        message = data.get("choices", [{}])[0].get("message", {}) or {}
-        content = (message.get("content") or "").strip()
-        if not content:
-            content = (message.get("reasoning") or "").strip()
+        content = await asyncio.to_thread(
+            _call_model, messages, backend, json_mode=False
+        )
+        content = (content or "").strip()
         if not content:
             return ERROR_TEXT
         if _looks_like_planning_text(content):
             return _final_brief_draft_from_context(context_prompt) or content
         return content
     except Exception as exc:
-        _log(f"[run_nemotron] exception: {exc!r}")
+        _log(f"[run_nemotron] backend={backend} exception: {exc!r}")
         return ERROR_TEXT
 
 
@@ -231,8 +218,7 @@ async def run_with_tools(
     what the UI surfaces as the "Agent reasoning" panel.
 
     Backend selection (first reachable wins):
-      OpenRouter (OPENROUTER_API_KEY) → NVIDIA NIM (NVIDIA_API_KEY) →
-      Ollama (OLLAMA_HOST reachable) → deterministic fallback.
+      NVIDIA NIM (NVIDIA_API_KEY) → OpenRouter → Ollama → deterministic fallback.
     """
     findings: dict[str, Any] = {"patient": patient}
     trace: list[dict[str, Any]] = []
@@ -443,11 +429,29 @@ async def run_with_tools(
 
 
 def _detect_backend() -> str:
-    """Return 'openrouter', 'nim', 'ollama', or 'none' (first reachable wins)."""
-    if os.getenv("OPENROUTER_API_KEY", "").strip():
+    """Return 'nim', 'openrouter', 'ollama', or 'none'."""
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+
+    if LLM_BACKEND == "nim" and NVIDIA_API_KEY:
+        return "nim"
+    if LLM_BACKEND == "openrouter" and openrouter_key:
         return "openrouter"
+    if LLM_BACKEND == "ollama":
+        try:
+            resp = requests.get(
+                f"{OLLAMA_HOST}/api/tags", timeout=2, verify=certifi.where()
+            )
+            if resp.status_code == 200:
+                return "ollama"
+        except Exception:
+            pass
+        return "none"
+
+    # auto (default): NIM first — avoids OpenRouter free-tier 429s when both keys exist
     if NVIDIA_API_KEY:
         return "nim"
+    if openrouter_key:
+        return "openrouter"
     try:
         resp = requests.get(
             f"{OLLAMA_HOST}/api/tags", timeout=2, verify=certifi.where()
@@ -459,11 +463,37 @@ def _detect_backend() -> str:
     return "none"
 
 
-def _call_model(messages: list[dict[str, str]], backend: str) -> str:
+def _prepare_nim_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Nemotron Super models use /think on the system message for reasoning mode."""
+    if "nemotron-super" not in NIM_MODEL.lower():
+        return messages
+    out: list[dict[str, str]] = [dict(m) for m in messages]
+    if not out or out[0].get("role") != "system":
+        return out
+    content = str(out[0].get("content") or "")
+    if "/think" not in content:
+        out[0]["content"] = f"/think\n\n{content}"
+    return out
+
+
+def _extract_chat_content(body: dict) -> str:
+    msg = (body.get("choices", [{}])[0].get("message") or {})
+    content = (msg.get("content") or "").strip()
+    if not content:
+        content = (msg.get("reasoning") or "").strip()
+    return content
+
+
+def _call_model(
+    messages: list[dict[str, str]],
+    backend: str,
+    *,
+    json_mode: bool = True,
+) -> str:
     if backend == "openrouter":
         return _call_openrouter(messages)
     if backend == "nim":
-        return _call_nim(messages)
+        return _call_nim(messages, json_mode=json_mode)
     if backend == "ollama":
         return _call_ollama(messages)
     raise RuntimeError("no LLM backend available")
@@ -491,12 +521,7 @@ def _call_openrouter(messages: list[dict[str, str]]) -> str:
     )
     if response.status_code >= 400:
         raise RuntimeError(f"openrouter http {response.status_code}: {response.text[:200]}")
-    body = response.json()
-    msg = (body.get("choices", [{}])[0].get("message") or {})
-    content = (msg.get("content") or "").strip()
-    if not content:
-        content = (msg.get("reasoning") or "").strip()
-    return content
+    return _extract_chat_content(response.json())
 
 
 def _call_ollama(messages: list[dict[str, str]]) -> str:
@@ -517,26 +542,38 @@ def _call_ollama(messages: list[dict[str, str]]) -> str:
     return (body.get("message") or {}).get("content") or ""
 
 
-def _call_nim(messages: list[dict[str, str]]) -> str:
+def _call_nim(messages: list[dict[str, str]], *, json_mode: bool = True) -> str:
+    nim_messages = _prepare_nim_messages(messages)
+    payload: dict[str, Any] = {
+        "model": NIM_MODEL,
+        "messages": nim_messages,
+        "temperature": float(os.getenv("NIM_TEMPERATURE", "0.6")),
+        "top_p": float(os.getenv("NIM_TOP_P", "0.95")),
+        "max_tokens": NIM_MAX_TOKENS,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
     response = requests.post(
-        "https://integrate.api.nvidia.com/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {NVIDIA_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": NIM_MODEL,
-            "messages": messages,
-            "temperature": 0.1,
-            "max_tokens": 1024,
-            "response_format": {"type": "json_object"},
-        },
-        timeout=120,
+        NIM_URL,
+        headers=headers,
+        json=payload,
+        timeout=NIM_TIMEOUT_SEC,
         verify=certifi.where(),
     )
-    response.raise_for_status()
-    body = response.json()
-    return (body.get("choices", [{}])[0].get("message") or {}).get("content") or ""
+    if response.status_code >= 400 and json_mode:
+        _log(f"[nim] json_mode failed ({response.status_code}), retrying without response_format")
+        return _call_nim(messages, json_mode=False)
+    if response.status_code >= 400:
+        raise RuntimeError(f"nim http {response.status_code}: {response.text[:300]}")
+    return _extract_chat_content(response.json())
 
 
 def _safe_json(text: str) -> dict | None:

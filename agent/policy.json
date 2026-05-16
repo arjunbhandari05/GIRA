@@ -1,6 +1,6 @@
 {
   "agent_id": "gira-v1",
-  "model": "nemotron-mini",
+  "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
   "tool_rules": {
     "required_first_tool": "get_snp_profile",
     "required_before_generate_brief": ["check_safety_flags"],
