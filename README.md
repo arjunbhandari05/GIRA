@@ -62,12 +62,17 @@ python scripts/test_agent.py PT-002
 | `GET` | `/wearable/{id}` | WHOOP 30-day summary |
 | `GET` | `/glucose/{id}` | CGM 30-day summary |
 | `GET` | `/agent_brief/{id}` | Run agent (or return cache). Query: `refresh=true`, `cache_only=true` |
+| `GET` | `/agent_brief/{id}/stream` | Server-Sent Events: `step` per finished tool, then `complete` with full brief JSON |
 | `GET` | `/brief/{id}` | Alias of `/agent_brief` |
 | `DELETE` | `/agent_brief/{id}` | Clear cached brief |
 
-**Agent brief response** (JSON): `safety_flags`, `snp_summary`, `recommendation`, `glucose_insight`, `wearable_insight`, `trial_matches`, `citations`, `intake_summary`, `patient_summary`, `_trace` (each step may include `reason` and `agent_role`), `_backend`, optional `_llm_model` (when Nemotron ran on NIM/OpenRouter/Ollama).
+**Agent brief response** (JSON): `safety_flags`, `snp_summary`, `recommendation`, `glucose_insight`, `wearable_insight`, `trial_matches`, `trial_search_meta`, `citations`, `intake_summary`, `patient_summary`, `_trace` (each step may include `reason` and `agent_role`), `_backend`, optional `_llm_model` (when Nemotron ran on NIM/OpenRouter/Ollama).
 
-Brief generation streams live tool-call events immediately; local demo runs are bounded by `AGENT_TIMEOUT_SEC`.
+Brief generation streams live tool-call events immediately; local demo runs are bounded by `AGENT_TIMEOUT_SEC`. Parallel mode brief assembly is capped by `BRIEF_ASSEMBLY_TIMEOUT_SEC`; if assembly times out, the partial brief still includes **`trial_matches`** merged from `fetch_trials` so the UI can list trials.
+
+**ClinicalTrials.gov** (`apis/clinical_trials.py`): recruiting T2D studies are queried with a larger page size; **US 5-digit ZIP codes are not sent as `query.locn`** (the v2 API often returns zero hits for bare ZIPs). Search is national with optional distance ranking when the ZIP is known. Parallel runs dedupe trials by `nct_id` / `nctId`.
+
+**Clinician loading UI** (`web/components/gira/gira-loading-page.tsx`): full-screen pipeline shows a **DNA helix**, progress from trace steps plus a time ramp, and an **Agent activity** column on the right where **completed steps reveal one-by-one** (~680ms apart) while the run is active; everything flushes when the run finishes or is cancelled. The Agent tab passes the streamed brief to the Clinician brief tab via a ref so **`trial_matches`** is not lost to a one-frame React lag.
 
 ---
 
@@ -151,6 +156,12 @@ See `.env.example`. Minimum for production-like runs:
 - `NVIDIA_API_KEY` — LLM backend (Nemotron on NIM)  
 - `NCBI_EMAIL` — PubMed / ClinVar (optional `NCBI_API_KEY` for higher rate limits)  
 - `USE_SYNTHETIC_WHOOP=true`, `USE_SYNTHETIC_GLUCOSE=true` — demo wearable data  
+
+Optional tuning:
+
+- `AGENT_BRIEF_CACHE` — when `true`, `GET /agent_brief` can return a persisted SQLite brief without re-running tools.  
+- `BRIEF_ASSEMBLY_TIMEOUT_SEC` — parallel mode cap for `generate_brief` (raise if PGx synthesis often times out).  
+- `AGENT_TIMEOUT_SEC` / `AGENT_TOOL_TIMEOUT_SEC` — overall and per-tool demo ceilings.
 
 ---
 
