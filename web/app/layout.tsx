@@ -1,12 +1,20 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { DM_Mono, DM_Serif_Display } from 'next/font/google'
+import { GeistSans } from 'geist/font/sans'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: '--font-inter'
-});
+const dmSerif = DM_Serif_Display({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-dm-serif',
+})
+
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-dm-mono',
+})
 
 export const metadata: Metadata = {
   title: 'GIRA Rx · Genomic Inference Rx Agent',
@@ -20,7 +28,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="bg-white">
-      <body className={`${inter.variable} font-sans antialiased bg-white text-[#1D1D1F]`}>
+      <body
+        className={`${GeistSans.variable} ${dmSerif.variable} ${dmMono.variable} font-sans antialiased bg-white text-[#1D1D1F]`}
+      >
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

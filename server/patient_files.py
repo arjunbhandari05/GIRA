@@ -45,10 +45,26 @@ def save_json(path: Path, payload: dict) -> None:
 
 
 def patient_assets_status(patient_id: str, snp_profile: dict | None) -> dict:
+    intake_ready = has_intake_file(patient_id)
+    if not intake_ready:
+        try:
+            from agent.memory import read as agent_read_patient
+            from parsers.intake_client import attach_intake_to_patient, load_intake
+            from schemas.patient_intake import intake_has_clinical_data
+
+            patient = agent_read_patient(patient_id)
+            if patient:
+                enriched = attach_intake_to_patient(patient)
+                intake = enriched.get("intake") or {}
+            else:
+                intake = load_intake(patient_id) or {}
+            intake_ready = intake_has_clinical_data(intake)
+        except Exception:
+            pass
     return {
         "patient_id": patient_id,
         "genome": bool(snp_profile),
         "wearable": has_whoop(patient_id),
         "glucose": has_glucose(patient_id),
-        "intake_file": has_intake_file(patient_id),
+        "intake_file": intake_ready,
     }

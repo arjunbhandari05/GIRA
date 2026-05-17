@@ -67,7 +67,7 @@ python scripts/test_agent.py PT-002
 
 **Agent brief response** (JSON): `safety_flags`, `snp_summary`, `recommendation`, `glucose_insight`, `wearable_insight`, `trial_matches`, `citations`, `intake_summary`, `patient_summary`, `_trace` (each step may include `reason` and `agent_role`), `_backend`, optional `_llm_model` (when Nemotron ran on NIM/OpenRouter/Ollama).
 
-Long-running: allow **2–5 minutes** for first `GET /agent_brief` (no cache).
+Brief generation streams live tool-call events immediately; local demo runs are bounded by `AGENT_TIMEOUT_SEC`.
 
 ---
 

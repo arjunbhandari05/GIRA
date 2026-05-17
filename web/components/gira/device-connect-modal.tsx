@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CheckCircle, Loader2, X } from "lucide-react"
+import { CheckCircle, Circle, Loader2, X } from "lucide-react"
 import type { DeviceSlot } from "@/lib/device-larp"
 
 type Phase = "search" | "pick" | "connecting" | "done"
@@ -16,16 +16,20 @@ interface DeviceConnectModalProps {
   onClose: () => void
   title: string
   searchLabel: string
+  connectSteps: string[]
   options: DeviceOption[]
   manualPlaceholder: string
   onConnect: (slot: DeviceSlot | null, manualId?: string) => Promise<void>
 }
+
+const STEP_MS = 650
 
 export default function DeviceConnectModal({
   open,
   onClose,
   title,
   searchLabel,
+  connectSteps,
   options,
   manualPlaceholder,
   onConnect,
@@ -34,6 +38,8 @@ export default function DeviceConnectModal({
   const [selected, setSelected] = useState<DeviceSlot | null>(null)
   const [manualId, setManualId] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [activeStep, setActiveStep] = useState(0)
+  const [stepsDone, setStepsDone] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -41,17 +47,43 @@ export default function DeviceConnectModal({
     setSelected(null)
     setManualId("")
     setError(null)
-    const t = setTimeout(() => setPhase("pick"), 2000)
+    setActiveStep(0)
+    setStepsDone(false)
+    const t = setTimeout(() => setPhase("pick"), 1800)
     return () => clearTimeout(t)
   }, [open])
+
+  useEffect(() => {
+    if (phase !== "connecting") return
+    setActiveStep(0)
+    setStepsDone(false)
+    const timers: ReturnType<typeof setTimeout>[] = []
+    connectSteps.forEach((_, i) => {
+      timers.push(
+        setTimeout(() => {
+          setActiveStep(i)
+          if (i === connectSteps.length - 1) {
+            setTimeout(() => setStepsDone(true), STEP_MS)
+          }
+        }, i * STEP_MS)
+      )
+    })
+    return () => timers.forEach(clearTimeout)
+  }, [phase, connectSteps])
 
   const finishConnect = async (slot: DeviceSlot | null, manual?: string) => {
     setPhase("connecting")
     setError(null)
+    const minStepsMs = connectSteps.length * STEP_MS + 400
     try {
-      await onConnect(slot, manual)
+      await Promise.all([
+        onConnect(slot, manual),
+        new Promise((r) => setTimeout(r, minStepsMs)),
+      ])
+      setStepsDone(true)
+      setActiveStep(connectSteps.length - 1)
       setPhase("done")
-      setTimeout(() => onClose(), 1200)
+      setTimeout(() => onClose(), 1400)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Connection failed")
       setPhase("pick")
@@ -73,7 +105,11 @@ export default function DeviceConnectModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
       <div className="w-full max-w-md bg-white rounded-xl border border-[#E8E6F0] shadow-xl p-6 relative">
-        <button type="button" onClick={onClose} className="absolute top-4 right-4 p-1 text-[#9895A8] hover:text-[#0D0B14]">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 p-1 text-[#9895A8] hover:text-[#0D0B14]"
+        >
           <X className="w-5 h-5" />
         </button>
 
@@ -121,9 +157,39 @@ export default function DeviceConnectModal({
         )}
 
         {phase === "connecting" && (
-          <div className="py-10 flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-[#1A9E6E]" />
-            <p className="text-[14px] text-[#6B6778]">Connecting…</p>
+          <div className="mt-6 py-4 space-y-3">
+            <p className="text-[13px] font-medium text-[#6B6778] mb-4">Connecting…</p>
+            <ul className="space-y-3" aria-live="polite">
+              {connectSteps.map((label, i) => {
+                const done = stepsDone || i < activeStep
+                const current = !stepsDone && i === activeStep
+                return (
+                  <li key={label} className="flex items-center gap-3">
+                    {done ? (
+                      <CheckCircle className="w-5 h-5 shrink-0 text-[#1A9E6E]" />
+                    ) : current ? (
+                      <Loader2 className="w-5 h-5 shrink-0 animate-spin text-[#5B3FD4]" />
+                    ) : (
+                      <Circle className="w-5 h-5 shrink-0 text-[#E8E6F0]" />
+                    )}
+                    <span
+                      className={`text-[14px] ${
+                        done
+                          ? "text-[#0D0B14]"
+                          : current
+                            ? "text-[#5B3FD4] font-medium"
+                            : "text-[#9895A8]"
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+            {selected && (
+              <p className="text-[11px] font-mono text-[#9895A8] pt-2">Device {selected}</p>
+            )}
           </div>
         )}
 

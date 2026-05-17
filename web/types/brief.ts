@@ -59,6 +59,8 @@ export interface TrialMatch {
 export interface Citation {
   index: number
   text: string
+  pmid?: string
+  url?: string
 }
 
 export interface AgentBrief {

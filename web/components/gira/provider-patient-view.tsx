@@ -1,16 +1,15 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, FileText, ClipboardList, Activity, Dna, Sparkles } from "lucide-react"
+import { ArrowLeft, FileText, Activity, Dna, Sparkles } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import type { AgentBrief, Patient } from "@/lib/types"
 import BriefInferencePanel from "@/components/brief/BriefInferencePanel"
 import BriefTab from "./tabs/brief-tab"
-import IntakeFormTab from "./tabs/intake-form-tab"
 import WhoopDataTab from "./tabs/whoop-data-tab"
 import GenomeTab from "./tabs/genome-tab"
 
-type Tab = "brief" | "results" | "intake" | "whoop" | "genome"
+type Tab = "brief" | "results" | "whoop" | "genome"
 
 interface ProviderPatientViewProps {
   patient: Patient
@@ -22,7 +21,6 @@ interface ProviderPatientViewProps {
 
 const baseTabs: { id: Tab; label: string; icon: typeof FileText }[] = [
   { id: "brief", label: "Agent", icon: FileText },
-  { id: "intake", label: "Intake", icon: ClipboardList },
   { id: "whoop", label: "Metrics", icon: Activity },
   { id: "genome", label: "Genome", icon: Dna },
 ]
@@ -35,7 +33,10 @@ export default function ProviderPatientView({
   onPatientUpdated,
   initialTab = "brief",
 }: ProviderPatientViewProps) {
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab === "brief" ? "brief" : initialTab)
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const allowed: Tab[] = ["brief", "results", "whoop", "genome"]
+    return allowed.includes(initialTab) ? initialTab : "brief"
+  })
   const [dataRefreshKey, setDataRefreshKey] = useState(0)
   const [hasCachedBrief, setHasCachedBrief] = useState(false)
   const [generatedBrief, setGeneratedBrief] = useState<AgentBrief | null>(null)
@@ -44,8 +45,9 @@ export default function ProviderPatientView({
   const bumpDataRefresh = () => setDataRefreshKey((k) => k + 1)
 
   useEffect(() => {
-    const tab = initialTab === "brief" ? "brief" : initialTab
-    setActiveTab(tab)
+    const allowed: Tab[] = ["brief", "results", "whoop", "genome"]
+    const next = allowed.includes(initialTab) ? initialTab : "brief"
+    setActiveTab(next)
   }, [initialTab, patient.id])
 
   const tabConfig = useMemo(
@@ -62,34 +64,38 @@ export default function ProviderPatientView({
   }
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="gira-clinician-shell min-h-screen">
       <header className="bg-white border-b border-[#E8E6F0] sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-6">
           <div className="py-4 flex items-center justify-between">
-            <motion.div className="flex items-center gap-4">
-              <button onClick={onBack} className="p-2 -ml-2 hover:bg-[#F9F8FC] rounded-lg transition-colors">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={onBack}
+                className="p-2 -ml-2 hover:bg-[#F9F8FC] rounded-lg transition-colors"
+                aria-label="Back to patients"
+              >
                 <ArrowLeft className="w-5 h-5 text-[#9895A8]" />
               </button>
               <div className="flex items-baseline gap-1">
                 <span className="text-xl font-bold tracking-tight text-[#0D0B14]">GIRA</span>
                 <span className="text-sm font-medium text-[#5B3FD4]">Rx</span>
               </div>
-            </motion.div>
+            </div>
 
             <div className="flex items-center gap-3">
               <div
-                className={`w-9 h-9 rounded-full ${patient.avatarColor} flex items-center justify-center text-white font-medium text-sm`}
+                className={`w-9 h-9 rounded-full ${patient.avatarColor} flex items-center justify-center text-white font-medium text-sm shrink-0`}
               >
                 {patient.initials}
               </div>
-              <div className="hidden sm:block">
-                <p className="font-medium text-[#0D0B14] text-sm">{patient.name}</p>
-                <p className="text-xs font-mono text-[#9895A8]">{patient.id}</p>
+              <div className="hidden sm:block text-left">
+                <p className="font-medium text-[#0D0B14] text-sm leading-tight">{patient.name}</p>
+                <p className="gira-mono text-xs text-[#9895A8] leading-tight">{patient.id}</p>
               </div>
             </div>
           </div>
 
-          <nav className="flex gap-0 -mb-px">
+          <nav className="flex gap-0 -mb-px overflow-x-auto">
             {tabConfig.map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -97,7 +103,7 @@ export default function ProviderPatientView({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`relative flex items-center gap-2 px-4 py-4 text-[14px] transition-colors ${
+                  className={`relative flex items-center gap-2 px-4 py-4 text-[14px] transition-colors whitespace-nowrap ${
                     isActive ? "text-[#0D0B14] font-semibold" : "text-[#9895A8] font-medium hover:text-[#0D0B14]"
                   }`}
                 >
@@ -127,11 +133,7 @@ export default function ProviderPatientView({
             transition={{ duration: 0.2 }}
           >
             {activeTab === "brief" && (
-              <BriefTab
-                patient={patient}
-                onNavigateIntake={() => setActiveTab("intake")}
-                onBriefComplete={handleBriefComplete}
-              />
+              <BriefTab patient={patient} onBriefComplete={handleBriefComplete} />
             )}
             {activeTab === "results" && hasCachedBrief && (
               <BriefInferencePanel
@@ -144,17 +146,6 @@ export default function ProviderPatientView({
                 showViewToggle
                 loadWhenActive
                 isActive={activeTab === "results"}
-              />
-            )}
-            {activeTab === "intake" && (
-              <IntakeFormTab
-                patientId={patient.id}
-                refreshKey={dataRefreshKey}
-                onSaved={() => {
-                  onPatientUpdated?.()
-                  bumpDataRefresh()
-                }}
-                onSaveAndRerun={() => setActiveTab("brief")}
               />
             )}
             {activeTab === "whoop" && (

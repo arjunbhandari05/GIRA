@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { CheckCircle, Circle, Dna, FileJson, Heart, Loader2, Upload } from "lucide-react"
-import { motion } from "framer-motion"
 import {
   getPatientAssets,
   uploadPatientGenome,
@@ -12,6 +11,7 @@ import {
   type PatientAssets,
 } from "@/lib/api"
 import PatientWearableConnect from "../patient-wearable-connect"
+import IntakeFormTab from "./intake-form-tab"
 
 interface SetupTabProps {
   patientId: string
@@ -33,7 +33,7 @@ function StatusRow({
   hint: string
 }) {
   return (
-    <motion.div className="flex items-start gap-3">
+    <div className="flex items-start gap-3">
       {done ? (
         <CheckCircle className="w-5 h-5 text-[#1A9E6E] shrink-0 mt-0.5" />
       ) : (
@@ -43,7 +43,7 @@ function StatusRow({
         <p className={`text-[14px] font-medium ${done ? "text-[#0D0B14]" : "text-[#6B6778]"}`}>{label}</p>
         <p className="text-[12px] text-[#9895A8] mt-0.5">{hint}</p>
       </div>
-    </motion.div>
+    </div>
   )
 }
 
@@ -67,10 +67,10 @@ function UploadCard({
     <div className="border border-[#E8E6F0] rounded-lg bg-white p-5">
       <div className="flex items-start gap-3 mb-4">
         <Icon className="w-5 h-5 text-[#5B3FD4] shrink-0" />
-        <motion.div>
+        <div>
           <p className="text-[14px] font-semibold text-[#0D0B14]">{title}</p>
           <p className="text-[13px] text-[#6B6778] mt-0.5">{description}</p>
-        </motion.div>
+        </div>
       </div>
       <input
         ref={ref}
@@ -109,6 +109,7 @@ export default function SetupTab({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [intakeRefreshKey, setIntakeRefreshKey] = useState(0)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -179,9 +180,9 @@ export default function SetupTab({
       </div>
 
       {error && (
-        <motion.div className="border-l-[3px] border-l-[#C0392B] border border-[#E8E6F0] rounded-md p-3 text-[13px] text-[#C0392B]">
+        <div className="border-l-[3px] border-l-[#C0392B] border border-[#E8E6F0] rounded-md p-3 text-[13px] text-[#C0392B]">
           {error}
-        </motion.div>
+        </div>
       )}
       {message && (
         <div className="border-l-[3px] border-l-[#1A9E6E] border border-[#E8E6F0] rounded-md p-3 text-[13px] text-[#1A9E6E]">
@@ -204,7 +205,11 @@ export default function SetupTab({
         <StatusRow label="Genome" done={a.genome} hint="23andMe raw .txt" />
         <StatusRow label="WHOOP metrics" done={a.wearable} hint="Synthetic JSON → data/whoop/" />
         <StatusRow label="CGM glucose" done={a.glucose} hint="Synthetic JSON → data/glucose/" />
-        <StatusRow label="Intake form file" done={a.intake_file} hint="JSON matching intake schema" />
+        <StatusRow
+          label="Intake form"
+          done={a.intake_file}
+          hint={isPatient ? "JSON upload or clinician chart on file" : "Medications, vitals, goals saved in chart below"}
+        />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -232,20 +237,46 @@ export default function SetupTab({
           uploading={busy === "glucose"}
           onFile={(file) => wrapUpload("Glucose", () => uploadPatientGlucose(patientId, file))}
         />
-        <UploadCard
-          title="Intake form"
-          description="Pre-filled clinician intake JSON"
-          accept=".json,application/json"
-          icon={FileJson}
-          uploading={busy === "intake"}
-          onFile={(file) => wrapUpload("Intake", () => uploadPatientIntakeFile(patientId, file))}
-        />
+        {isPatient && (
+          <UploadCard
+            title="Intake form (optional)"
+            description="Upload intake JSON if your clinic provided a file"
+            accept=".json,application/json"
+            icon={FileJson}
+            uploading={busy === "intake"}
+            onFile={(file) => wrapUpload("Intake", () => uploadPatientIntakeFile(patientId, file))}
+          />
+        )}
       </div>
+
+      {!isPatient && (
+        <section className="border border-[#E8E6F0] rounded-lg bg-white p-5 sm:p-6">
+          <div className="mb-6">
+            <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">
+              Clinician intake
+            </p>
+            <p className="text-[13px] text-[#6B6778] mt-1">
+              Complete the chart for this patient — meds, vitals, goals, and visit notes feed PGx safety and the agent brief.
+            </p>
+          </div>
+          <IntakeFormTab
+            patientId={patientId}
+            embedded
+            refreshKey={intakeRefreshKey}
+            onSaved={() => {
+              setMessage("Intake saved.")
+              setIntakeRefreshKey((k) => k + 1)
+              refresh()
+              onAssetsUpdated?.()
+            }}
+          />
+        </section>
+      )}
 
       <p className="text-[12px] text-[#9895A8]">
         {isPatient
           ? "Connect devices above or upload files below. Live metrics appear on the Live Metrics tab once data is available."
-          : "You can also edit intake manually on the Intake tab. Metrics appear on the Metrics tab after WHOOP and CGM files are uploaded."}
+          : "Upload genome and metrics above, then complete the intake chart. Open the Agent tab when ready to run GIRA."}
       </p>
     </div>
   )

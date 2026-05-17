@@ -60,7 +60,7 @@ def synthesize_pgx_evidence(
         },
     ]
 
-    timeout_sec = int(os.getenv("PGX_SYNTHESIS_TIMEOUT_SEC", "45"))
+    timeout_sec = int(os.getenv("PGX_SYNTHESIS_TIMEOUT_SEC", "20"))
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             fut = pool.submit(_call_model, messages, backend, json_mode=True)

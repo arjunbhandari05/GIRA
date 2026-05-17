@@ -126,10 +126,15 @@ export function mapTrialMatches(api: ApiBrief): TrialMatch[] {
 }
 
 export function mapCitations(api: ApiBrief): Citation[] {
-  return (api.citations || []).map((c, i) => ({
-    index: i + 1,
-    text: `${c.title || "Reference"} (PMID ${c.pmid || "—"}): ${c.inference || ""}`,
-  }))
+  return (api.citations || []).map((c, i) => {
+    const pmid = c.pmid ? String(c.pmid).trim() : undefined
+    return {
+      index: i + 1,
+      pmid,
+      url: c.url || (pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : undefined),
+      text: `${c.title || "Reference"} (PMID ${pmid || "—"}): ${c.inference || ""}`,
+    }
+  })
 }
 
 export function mapAgentBrief(api: ApiBrief, snpProfile?: Record<string, { genotype?: string }>): AgentBrief {

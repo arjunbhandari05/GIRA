@@ -66,6 +66,11 @@ export default function PatientWearableConnect({
         onClose={() => setWhoopOpen(false)}
         title="Connect your WHOOP"
         searchLabel="Searching for nearby WHOOP devices…"
+        connectSteps={[
+          "Authenticating with WHOOP…",
+          "Syncing recovery & strain data…",
+          "Importing 30-day metrics…",
+        ]}
         options={WHOOP_DEVICE_OPTIONS}
         manualPlaceholder="WHOOP User ID"
         onConnect={async (slot: DeviceSlot | null) => {
@@ -78,6 +83,11 @@ export default function PatientWearableConnect({
         onClose={() => setCgmOpen(false)}
         title="Connect your CGM"
         searchLabel="Searching for nearby CGM devices…"
+        connectSteps={[
+          "Pairing with CGM sensor…",
+          "Downloading glucose readings…",
+          "Calculating time-in-range…",
+        ]}
         options={CGM_DEVICE_OPTIONS}
         manualPlaceholder="Libre User ID"
         onConnect={async (slot: DeviceSlot | null) => {

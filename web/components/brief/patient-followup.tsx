@@ -19,6 +19,11 @@ const PANEL_TRANSITION_MS = 280
 export const PATIENT_FREEFORM_INSTRUCTION =
   "You are GIRA, a friendly and clear health assistant. The patient has just reviewed their medication brief. Answer their question using only information relevant to their health data shown in the brief. Use plain language a non-medical person can understand. Keep answers concise — 3 to 5 short paragraphs maximum. Never mention internal field names, raw variable values, or technical system details."
 
+export const CLINICIAN_FREEFORM_INSTRUCTION =
+  "You are GIRA, a clinical pharmacogenomics assistant supporting a physician. The clinician is reviewing this patient's PGx brief. Answer using only evidence in the patient context — genotypes, safety flags, intake, CGM, and citations already retrieved. Use precise clinical language; bullets are fine. Keep answers concise. Never invent genotypes, PMIDs, trial IDs, or drug doses not supported by the context."
+
+export type FollowupAudience = "patient" | "clinician"
+
 export type ConversationTurn = {
   id: string
   question: string
@@ -42,17 +47,28 @@ export function usePatientFollowup() {
   return ctx
 }
 
-function userMessageContent(question: string, withInstruction: boolean): string {
-  return withInstruction ? `${PATIENT_FREEFORM_INSTRUCTION}\n\n${question}` : question
+function freeformInstruction(audience: FollowupAudience): string {
+  return audience === "clinician" ? CLINICIAN_FREEFORM_INSTRUCTION : PATIENT_FREEFORM_INSTRUCTION
 }
 
-function turnsToApiMessages(turns: ConversationTurn[]): FollowupMessage[] {
+function userMessageContent(
+  question: string,
+  withInstruction: boolean,
+  audience: FollowupAudience
+): string {
+  return withInstruction ? `${freeformInstruction(audience)}\n\n${question}` : question
+}
+
+function turnsToApiMessages(
+  turns: ConversationTurn[],
+  audience: FollowupAudience
+): FollowupMessage[] {
   const messages: FollowupMessage[] = []
   for (const turn of turns) {
     if (!turn.answer) continue
     messages.push({
       role: "user",
-      content: userMessageContent(turn.question, turn.withInstruction),
+      content: userMessageContent(turn.question, turn.withInstruction, audience),
     })
     messages.push({ role: "assistant", content: turn.answer })
   }
@@ -154,7 +170,6 @@ function PatientFollowupPanel({
   const [visible, setVisible] = useState(false)
   const [followUpValue, setFollowUpValue] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (open) {
@@ -182,15 +197,6 @@ function PatientFollowupPanel({
   useEffect(() => {
     if (!open) setFollowUpValue("")
   }, [open])
-
-  useEffect(() => {
-    if (!mounted) return
-    const el = bottomRef.current
-    if (!el) return
-    requestAnimationFrame(() => {
-      el.scrollIntoView({ block: "end", behavior: "smooth" })
-    })
-  }, [mounted, turns, loading])
 
   const handleFollowUp = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -256,7 +262,6 @@ function PatientFollowupPanel({
                 {i < turns.length - 1 ? <hr className="border-border" /> : null}
               </div>
             ))}
-            <div ref={bottomRef} className="h-px shrink-0" aria-hidden />
           </div>
         </div>
 
@@ -280,9 +285,11 @@ function PatientFollowupPanel({
 export function PatientFollowupProvider({
   patientId,
   children,
+  audience = "patient",
 }: {
   patientId: string
   children: ReactNode
+  audience?: FollowupAudience
 }) {
   const { sendMessages, loading } = useFollowup(patientId)
   const [open, setOpen] = useState(false)
@@ -312,10 +319,10 @@ export function PatientFollowupProvider({
         return [...priorSnapshot, pending]
       })
 
-      const history = turnsToApiMessages(priorSnapshot)
+      const history = turnsToApiMessages(priorSnapshot, audience)
       history.push({
         role: "user",
-        content: userMessageContent(displayQuestion, withInstruction),
+        content: userMessageContent(displayQuestion, withInstruction, audience),
       })
 
       const answer = await sendMessages(history)
@@ -332,7 +339,7 @@ export function PatientFollowupProvider({
         )
       )
     },
-    [sendMessages]
+    [sendMessages, audience]
   )
 
   const submitQuestion = useCallback(
@@ -369,8 +376,12 @@ export function PatientFollowupProvider({
   )
 }
 
-export function AskGiraBar() {
+export function AskGiraBar({ audience = "patient" }: { audience?: FollowupAudience }) {
   const { submitQuestion, loading } = usePatientFollowup()
+  const placeholder =
+    audience === "clinician"
+      ? "Ask about this patient's PGx brief…"
+      : "Ask anything about your results…"
   const [value, setValue] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -403,7 +414,7 @@ export function AskGiraBar() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onFocus={handleFocus}
-          placeholder="Ask anything about your results…"
+          placeholder={placeholder}
           disabled={loading}
           className="w-full rounded-lg border border-[#E8E6F0] bg-background py-3 pl-4 pr-12 text-[15px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[#5B3FD4] disabled:opacity-60"
         />

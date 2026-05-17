@@ -15,6 +15,8 @@ import type { PatientIntake } from "@/lib/types"
 interface IntakeFormTabProps {
   patientId: string
   refreshKey?: number
+  /** Hide duplicate page chrome when nested in Setup */
+  embedded?: boolean
   onSaved?: () => void
   onSaveAndRerun?: () => void
 }
@@ -22,6 +24,7 @@ interface IntakeFormTabProps {
 export default function IntakeFormTab({
   patientId,
   refreshKey = 0,
+  embedded = false,
   onSaved,
   onSaveAndRerun,
 }: IntakeFormTabProps) {
@@ -113,13 +116,15 @@ export default function IntakeFormTab({
   }
 
   return (
-    <div className="space-y-8 max-w-3xl">
-      <div>
-        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Intake Form</p>
-        <p className="text-[13px] text-[#6B6778] mt-1">
-          Fill manually here, or ask the patient to upload intake JSON on their Setup page.
-        </p>
-      </div>
+    <div className={`space-y-8 ${embedded ? "" : "max-w-3xl"}`}>
+      {!embedded && (
+        <div>
+          <p className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[#9895A8]">Intake Form</p>
+          <p className="text-[13px] text-[#6B6778] mt-1">
+            Chart meds, vitals, goals, and visit notes — saved intake drives safety checks and the GIRA brief.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="border-l-[3px] border-l-[#C0392B] border border-[#E8E6F0] rounded-md p-3 text-[13px] text-[#C0392B]">

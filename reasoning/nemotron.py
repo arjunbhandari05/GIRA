@@ -341,39 +341,38 @@ async def run_with_tools(
 
     if backend == "none":
         _log("[nemotron] no LLM reachable — using deterministic fallback plan")
-        return _attach_trace(
-            _deterministic_plan(
+        plan_brief = await asyncio.to_thread(
+            _deterministic_plan,
+            patient_id,
+            patient,
+            tools_by_name,
+            findings,
+            trace,
+            "no_llm",
+            on_trace_step=on_trace_step,
+        )
+        return _attach_trace(plan_brief, trace, backend)
+
+    for iteration in range(MAX_ITERATIONS):
+        llm_t0 = time.perf_counter()
+        try:
+            response_text = await asyncio.to_thread(
+                _call_model, messages, backend, for_agent=True
+            )
+        except Exception as exc:
+            _log(f"[nemotron] model call failed at iter {iteration + 1}: {exc}")
+            plan_brief = await asyncio.to_thread(
+                _deterministic_plan,
                 patient_id,
                 patient,
                 tools_by_name,
                 findings,
                 trace,
-                run_reason="no_llm",
+                "model_error",
                 on_trace_step=on_trace_step,
-            ),
-            trace,
-            backend,
-        )
-
-    for iteration in range(MAX_ITERATIONS):
-        llm_t0 = time.perf_counter()
-        try:
-            response_text = _call_model(messages, backend, for_agent=True)
-        except Exception as exc:
-            _log(f"[nemotron] model call failed at iter {iteration + 1}: {exc}")
+            )
             return _attach_trace(
-                _deterministic_plan(
-                    patient_id,
-                    patient,
-                    tools_by_name,
-                    findings,
-                    trace,
-                    run_reason="model_error",
-                    on_trace_step=on_trace_step,
-                ),
-                trace,
-                backend,
-                error=str(exc),
+                plan_brief, trace, backend, error=str(exc)
             )
 
         llm_ms = int((time.perf_counter() - llm_t0) * 1000)
@@ -415,8 +414,11 @@ async def run_with_tools(
                 forced_args = _enrich_args(
                     "generate_brief", {"all_findings": findings}, findings, patient
                 )
-                forced, forced_ms = _timed_execute_tool(
-                    "generate_brief", forced_args, tools_by_name
+                forced, forced_ms = await asyncio.to_thread(
+                    _timed_execute_tool,
+                    "generate_brief",
+                    forced_args,
+                    tools_by_name,
                 )
                 tr = _trace_step_record(
                     "generate_brief",
@@ -479,7 +481,9 @@ async def run_with_tools(
         args = _enrich_args(name, args, findings, patient)
 
         _log(f"[nemotron] tool: {name}  args: {json.dumps(args, default=str)[:140]}")
-        result, tool_ms = _timed_execute_tool(name, args, tools_by_name)
+        result, tool_ms = await asyncio.to_thread(
+            _timed_execute_tool, name, args, tools_by_name
+        )
         findings[name] = result
         call_counts[name] = call_counts.get(name, 0) + 1
         tr = _trace_step_record(
@@ -511,16 +515,18 @@ async def run_with_tools(
         )
 
     _log("[nemotron] max iterations reached — falling back to deterministic plan")
+    plan_brief = await asyncio.to_thread(
+        _deterministic_plan,
+        patient_id,
+        patient,
+        tools_by_name,
+        findings,
+        trace,
+        "max_iter",
+        on_trace_step=on_trace_step,
+    )
     return _attach_trace(
-        _deterministic_plan(
-            patient_id,
-            patient,
-            tools_by_name,
-            findings,
-            trace,
-            run_reason="max_iter",
-            on_trace_step=on_trace_step,
-        ),
+        plan_brief,
         trace,
         backend,
         error="max_iterations",
@@ -860,6 +866,22 @@ PUBMED_PAIRS = [
     ("VKORC1", "warfarin"),
     ("FTO", "semaglutide"),
 ]
+
+
+def _pubmed_pairs_for_run() -> list[tuple[str, str]]:
+    raw = os.getenv("PUBMED_MAX_PAIRS", "").strip()
+    if raw.isdigit():
+        return PUBMED_PAIRS[: max(1, int(raw))]
+    return PUBMED_PAIRS
+
+
+def _primary_genes_for_run() -> list[str]:
+    raw = os.getenv("TRIALS_MAX_GENES", "").strip()
+    if raw.isdigit():
+        return PRIMARY_GENES[: max(1, int(raw))]
+    return PRIMARY_GENES
+
+
 PRIMARY_GENES = [
     "TCF7L2",
     "SLC22A1",
@@ -994,9 +1016,9 @@ async def run_parallel_tool_plan(
         ("fetch_glucose", {"patient_id": patient_id}),
         ("fetch_rxnorm", {}),
     ]
-    for gene, drug in PUBMED_PAIRS:
+    for gene, drug in _pubmed_pairs_for_run():
         phase2_specs.append(("fetch_pubmed", {"gene": gene, "drug": drug}))
-    for gene in PRIMARY_GENES:
+    for gene in _primary_genes_for_run():
         phase2_specs.append(
             ("fetch_trials", {"gene": gene, "zip_code": zip_code})
         )
@@ -1104,8 +1126,8 @@ def _deterministic_plan(
 ) -> dict[str, Any]:
     snp_profile = patient.get("snp_profile") or {}
     primary_rsids = PRIMARY_RSIDS
-    primary_genes = PRIMARY_GENES
-    pubmed_pairs = PUBMED_PAIRS
+    primary_genes = _primary_genes_for_run()
+    pubmed_pairs = _pubmed_pairs_for_run()
 
     first_fallback_note = True
 

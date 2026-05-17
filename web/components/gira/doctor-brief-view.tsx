@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
 import type { AgentBrief, Patient, SafetyFlag, TraceStep } from "@/lib/types"
 import { formatTraceStep, genotypeForFlag, severityUi, toolConsoleLabel } from "@/lib/mappers"
 import SnpDetailPanel from "./snp-detail-panel"
+import { MarkdownContent } from "@/lib/simple-markdown"
 
 interface DoctorBriefViewProps {
   patient: Patient
@@ -398,9 +399,12 @@ export default function DoctorBriefView({
                   </span>
                 )}
                 {(c as { inference?: string }).inference && (
-                  <p className="text-[12px] text-[#6B6778] mt-1 pl-0">
-                    {(c as { inference?: string }).inference}
-                  </p>
+                  <MarkdownContent
+                    text={(c as { inference?: string }).inference || ""}
+                    className="mt-1"
+                    paragraphClass="text-[12px] leading-relaxed text-[#6B6778] my-1"
+                    listClass="text-[12px] leading-relaxed text-[#6B6778] my-1"
+                  />
                 )}
               </li>
             ))}

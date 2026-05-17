@@ -8,6 +8,7 @@ import WearableSummary from "./WearableSummary"
 import TrialList from "./TrialList"
 import CitationList from "./CitationList"
 import FollowupActions from "./FollowupActions"
+import { AskGiraBar, PatientFollowupProvider } from "./patient-followup"
 import RunTimingSummary from "./RunTimingSummary"
 import type { AgentBrief, PatientMeta } from "@/types/brief"
 
@@ -34,6 +35,7 @@ export default function ClinicianView({ brief, patient }: ClinicianViewProps) {
   ]
 
   return (
+    <PatientFollowupProvider patientId={patient.id} audience="clinician">
     <div className="space-y-6">
       <RunTimingSummary timing={brief._timing} backend={brief._backend} />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -57,8 +59,10 @@ export default function ClinicianView({ brief, patient }: ClinicianViewProps) {
       <WearableSummary wearable={w} />
       <TrialList trials={brief.trial_matches} />
       <CitationList citations={brief.citations} />
-      <FollowupActions patientId={patient.id} questions={questions} />
+      <FollowupActions patientId={patient.id} questions={questions} variant="clinician" />
+      <AskGiraBar audience="clinician" />
       <p className="text-xs text-muted-foreground">{DISCLAIMER}</p>
     </div>
+    </PatientFollowupProvider>
   )
 }

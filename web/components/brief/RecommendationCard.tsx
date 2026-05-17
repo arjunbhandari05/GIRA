@@ -34,26 +34,26 @@ export default function RecommendationCard({
           icon={isPatient ? Check : Dna}
           label={isPatient ? "Why your DNA matters" : "Genomic"}
           text={recommendation.rationale.genomic}
-          useMarkdown={isPatient}
+          useMarkdown
         />
         <RationaleRow
           icon={isPatient ? Check : Activity}
           label={isPatient ? "Blood sugar from your sensor" : "CGM"}
           text={recommendation.rationale.cgm}
-          useMarkdown={isPatient}
+          useMarkdown
         />
         <RationaleRow
           icon={isPatient ? Check : HeartPulse}
           label={isPatient ? "Recovery & stress" : "Wearable"}
           text={recommendation.rationale.wearable}
-          useMarkdown={isPatient}
+          useMarkdown
         />
         {recommendation.rationale.safety_note ? (
           <RationaleRow
             icon={isPatient ? AlertTriangle : AlertCircle}
             label={isPatient ? "Something to watch" : "Safety"}
             text={recommendation.rationale.safety_note}
-            useMarkdown={isPatient}
+            useMarkdown
           />
         ) : null}
       </div>

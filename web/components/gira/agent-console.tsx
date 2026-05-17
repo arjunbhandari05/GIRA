@@ -83,7 +83,7 @@ export default function AgentConsole({
   lines,
   running = false,
   loading = false,
-  emptyHint = 'Click "Run GIRA Agent" to start the pipeline',
+  emptyHint = 'Click "Generate Clinical Brief" to start the live agent trace',
   defaultOpen = false,
   animateLatest = false,
 }: AgentConsoleProps) {

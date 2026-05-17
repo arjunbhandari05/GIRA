@@ -196,7 +196,7 @@ export default function GiraAgentLog({ entries, className, running = false }: Gi
         {running && entries.length > 0 && (
           <p className="text-[12px] text-[#9895A8] mt-3 px-3 flex items-center gap-2">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-gira-accent" />
-            GIRA is working…
+            GIRA is planning…
           </p>
         )}
       </div>

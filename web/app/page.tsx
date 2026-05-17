@@ -13,6 +13,9 @@ import type { Patient } from "@/lib/types"
 export type { Patient } from "@/lib/types"
 export type Screen = "login" | "provider-dashboard" | "provider-patient-view" | "patient-dashboard"
 
+/** Default hackathon / provider demo roster (seed_db.py). */
+const DEMO_PATIENT_IDS = ["PT-001", "PT-002", "PT-003"] as const
+
 const pageVariants = {
   initial: { opacity: 0, y: 8 },
   animate: {
@@ -34,7 +37,7 @@ export default function GIRAApp() {
   const [patientsLoading, setPatientsLoading] = useState(false)
   const [patientsError, setPatientsError] = useState<string | null>(null)
   const [sessionPatientId, setSessionPatientId] = useState("")
-  const [patientInitialTab, setPatientInitialTab] = useState<"brief" | "intake" | "whoop" | "genome">("brief")
+  const [patientInitialTab, setPatientInitialTab] = useState<"brief" | "whoop" | "genome" | "results">("brief")
 
   const loadPatients = useCallback(async () => {
     setPatientsLoading(true)
@@ -47,6 +50,13 @@ export default function GIRAApp() {
           return mapBackendPatient(row, flags)
         })
       )
+      const demoRank = new Map(DEMO_PATIENT_IDS.map((id, i) => [id, i]))
+      mapped.sort((a, b) => {
+        const ra = demoRank.get(a.id) ?? 999
+        const rb = demoRank.get(b.id) ?? 999
+        if (ra !== rb) return ra - rb
+        return a.id.localeCompare(b.id)
+      })
       setPatients(mapped)
     } catch (e) {
       setPatientsError(e instanceof Error ? e.message : "Could not load patients")
@@ -94,7 +104,7 @@ export default function GIRAApp() {
 
   const openPatientById = async (
     patientId: string,
-    tab: "brief" | "intake" | "whoop" | "genome" = "brief"
+    tab: "brief" | "whoop" | "genome" | "results" = "brief"
   ) => {
     await loadPatients()
     const flags = await getSafetyFlags(patientId).catch(() => [])

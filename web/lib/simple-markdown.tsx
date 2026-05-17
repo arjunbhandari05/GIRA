@@ -3,9 +3,14 @@ import { cn } from "@/lib/utils"
 
 const BULLET_RE = /^[\t ]*[-*•]\s+(.+)$/
 const ORDERED_RE = /^[\t ]*\d+\.\s+(.+)$/
+const HEADER3_RE = /^###\s+(.+)$/
+const PMID_RE = /\b(PMID[:\s#]*)(\d{5,10})\b/gi
+
+const linkClass =
+  "text-[#5B3FD4] underline underline-offset-2 hover:text-[#5B3FD4]/80 font-medium"
 
 /** Parse **bold** and *italic* (never show raw asterisks). */
-function parseInline(text: string, keyPrefix: string): ReactNode[] {
+function parseEmphasis(text: string, keyPrefix: string): ReactNode[] {
   const nodes: ReactNode[] = []
   const re = /\*\*([^*]+)\*\*|\*([^*]+)\*/g
   let last = 0
@@ -14,7 +19,7 @@ function parseInline(text: string, keyPrefix: string): ReactNode[] {
 
   while ((match = re.exec(text)) !== null) {
     if (match.index > last) {
-      nodes.push(text.slice(last, match.index))
+      nodes.push(...linkPubMedIds(text.slice(last, match.index), `${keyPrefix}-t-${i}`))
     }
     if (match[1] != null) {
       nodes.push(
@@ -33,16 +38,54 @@ function parseInline(text: string, keyPrefix: string): ReactNode[] {
   }
 
   if (last < text.length) {
+    nodes.push(...linkPubMedIds(text.slice(last), `${keyPrefix}-end`))
+  }
+
+  return nodes.length ? nodes : linkPubMedIds(text, keyPrefix)
+}
+
+function linkPubMedIds(text: string, keyPrefix: string): ReactNode[] {
+  const nodes: ReactNode[] = []
+  let last = 0
+  let match: RegExpExecArray | null
+  let i = 0
+  const re = new RegExp(PMID_RE.source, "gi")
+
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > last) {
+      nodes.push(text.slice(last, match.index))
+    }
+    const pmid = match[2]
+    nodes.push(
+      <a
+        key={`${keyPrefix}-pmid-${i++}`}
+        href={`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={linkClass}
+      >
+        PMID {pmid}
+      </a>
+    )
+    last = match.index + match[0].length
+  }
+
+  if (last < text.length) {
     nodes.push(text.slice(last))
   }
 
   return nodes.length ? nodes : [text]
 }
 
+function parseInline(text: string, keyPrefix: string): ReactNode[] {
+  return parseEmphasis(text, keyPrefix)
+}
+
 type Block =
   | { type: "p"; lines: string[] }
   | { type: "ul"; items: string[] }
   | { type: "ol"; items: string[] }
+  | { type: "h3"; text: string }
 
 function parseBlocks(text: string): Block[] {
   const lines = text.replace(/\r\n/g, "\n").split("\n")
@@ -52,6 +95,18 @@ function parseBlocks(text: string): Block[] {
   while (i < lines.length) {
     while (i < lines.length && !lines[i].trim()) i++
     if (i >= lines.length) break
+
+    const headerMatch = lines[i].match(HEADER3_RE)
+    if (headerMatch) {
+      blocks.push({ type: "h3", text: headerMatch[1] })
+      i++
+      continue
+    }
+
+    if (lines[i].trim() === "---") {
+      i++
+      continue
+    }
 
     if (BULLET_RE.test(lines[i])) {
       const items: string[] = []
@@ -80,7 +135,9 @@ function parseBlocks(text: string): Block[] {
       i < lines.length &&
       lines[i].trim() &&
       !BULLET_RE.test(lines[i]) &&
-      !ORDERED_RE.test(lines[i])
+      !ORDERED_RE.test(lines[i]) &&
+      !HEADER3_RE.test(lines[i]) &&
+      lines[i].trim() !== "---"
     ) {
       paraLines.push(lines[i])
       i++
@@ -95,14 +152,17 @@ const defaultParagraphClass = "text-[15px] leading-[1.7] text-foreground my-3 fi
 const defaultListClass = "text-[15px] leading-[1.7] text-foreground my-3 first:mt-0 last:mb-0"
 
 /**
- * Shared markdown → React (bold, italic, bullets, numbered lists, paragraphs).
+ * Shared markdown → React (bold, italic, bullets, numbered lists, paragraphs, PMID links).
  * No raw markdown syntax is shown.
  */
 export function renderMarkdown(
   text: string,
   options?: { paragraphClass?: string; listClass?: string }
 ): ReactNode {
-  const normalized = text.replace(/\r\n/g, "\n").trim()
+  const normalized = text
+    .replace(/\r\n/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .trim()
   if (!normalized) return null
 
   const paragraphClass = options?.paragraphClass ?? defaultParagraphClass
@@ -111,6 +171,18 @@ export function renderMarkdown(
   const elements: ReactNode[] = []
 
   blocks.forEach((block, blockIdx) => {
+    if (block.type === "h3") {
+      elements.push(
+        <h3
+          key={`h3-${blockIdx}`}
+          className="text-base font-semibold text-foreground mt-4 mb-2 first:mt-0"
+        >
+          {parseInline(block.text, `h3-${blockIdx}`)}
+        </h3>
+      )
+      return
+    }
+
     if (block.type === "ul") {
       elements.push(
         <ul key={`ul-${blockIdx}`} className={cn("list-disc space-y-2 pl-5", listClass)}>

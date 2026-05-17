@@ -485,7 +485,7 @@ async def stream_agent_brief(
             pass
 
     async def run_agent():
-        timeout_sec = float(os.getenv("AGENT_TIMEOUT_SEC", "60"))
+        timeout_sec = float(os.getenv("AGENT_TIMEOUT_SEC", "120"))
         try:
             brief = await asyncio.wait_for(
                 _run_agent_brief(
