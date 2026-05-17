@@ -34,6 +34,8 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
   const [brief, setBrief] = useState<AgentBrief | null>(null)
   const pipelineStartRef = useRef<number>(0)
   const stepQueueRef = useRef<TraceStep[]>([])
+  /** Latest API brief from stream/fetch — avoids stale React state when the loading overlay finishes. */
+  const lastBriefResultRef = useRef<AgentBrief | null>(null)
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showAgentOverlay, setShowAgentOverlay] = useState(false)
   const [agentLogEntries, setAgentLogEntries] = useState<AgentLogEntry[]>([])
@@ -111,6 +113,7 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
     let cancelled = false
     ;(async () => {
       setBrief(null)
+      lastBriefResultRef.current = null
       setPipelineComplete(false)
       setLogLines([])
       try {
@@ -237,7 +240,7 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
 
   const handleLoadingComplete = useCallback(() => {
     setShowAgentOverlay(false)
-    onBriefComplete?.(brief ?? undefined)
+    onBriefComplete?.(brief ?? lastBriefResultRef.current ?? undefined)
   }, [onBriefComplete, brief])
 
   const runPipeline = async () => {
@@ -258,6 +261,7 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
     pushAgentLogEntry(logLineToAgentEntry(bootLine, "boot"))
     setActiveCards([])
     setBrief(null)
+    lastBriefResultRef.current = null
     setPipelineComplete(false)
 
     try {
@@ -309,6 +313,7 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
             streamError = String(result.error)
             return
           }
+          lastBriefResultRef.current = result
           setBrief(result)
           const finish = () => {
             const elapsed = (Date.now() - pipelineStartRef.current) / 1000
@@ -346,6 +351,7 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
       if (!completed && sawGenerateBrief) {
         const result = await getAgentBrief(patient.id, { cacheOnly: true })
         if (result && !result.error && result.snp_summary) {
+          lastBriefResultRef.current = result
           setBrief(result)
           setPipelineComplete(true)
           if (result._trace?.length) activateCardsFromTrace(result._trace)
@@ -356,6 +362,7 @@ export default function BriefTab({ patient, onBriefComplete }: BriefTabProps) {
       if (!completed) {
         const result = await getAgentBrief(patient.id, { refresh: true })
         if (result.error) throw new Error(String(result.error))
+        lastBriefResultRef.current = result
         setBrief(result)
         if (result._trace?.length) {
           replayTraceSteps(result._trace)

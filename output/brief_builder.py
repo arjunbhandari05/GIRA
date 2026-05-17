@@ -572,16 +572,27 @@ def _wearable_insight(whoop: dict[str, Any]) -> dict[str, Any]:
 def _trial_matches(trials: list[dict]) -> list[dict]:
     return [
         {
-            "nct_id": t.get("nct_id"),
+            "nct_id": t.get("nct_id") or t.get("nctId"),
             "title": t.get("title"),
             "phase": t.get("phase"),
-            "match_genes": t.get("match_genes"),
+            "match_genes": t.get("match_genes") or t.get("matchGenes"),
             "location": t.get("location"),
             "url": t.get("url"),
         }
         for t in trials
         if isinstance(t, dict)
     ]
+
+
+def trial_evidence_from_findings(findings: dict[str, Any] | None) -> dict[str, Any]:
+    """Structured trial fields from raw tool findings (used for partial / timeout briefs)."""
+    if not findings:
+        return {"trial_matches": [], "trial_search_meta": None}
+    raw = findings.get("fetch_trials")
+    return {
+        "trial_matches": _trial_matches(_trials_list(raw)),
+        "trial_search_meta": _trials_meta(raw),
+    }
 
 
 def _recommendation(

@@ -114,15 +114,20 @@ export function mapWearableInsight(api: ApiBrief): WearableInsight {
 }
 
 export function mapTrialMatches(api: ApiBrief): TrialMatch[] {
-  return (api.trial_matches || []).map((t) => ({
-    nct_id: t.nct_id || "",
+  const apiExt = api as ApiBrief & { trialMatches?: ApiBrief["trial_matches"] }
+  const rows = api.trial_matches?.length ? api.trial_matches : apiExt.trialMatches
+  return (rows || []).map((t) => {
+    const nct = t.nct_id || (t as { nctId?: string }).nctId || ""
+    const genes = t.match_genes ?? (t as { matchGenes?: string[] }).matchGenes
+    return {
+    nct_id: nct,
     title: t.title || "Untitled trial",
     phase: t.phase || "N/A",
     status: "Recruiting",
     location: t.location || "",
-    url: t.url || (t.nct_id ? `https://clinicaltrials.gov/study/${t.nct_id}` : undefined),
-    tags: t.match_genes || [],
-  }))
+    url: t.url || (nct ? `https://clinicaltrials.gov/study/${nct}` : undefined),
+    tags: Array.isArray(genes) ? genes : [],
+  }})
 }
 
 export function mapCitations(api: ApiBrief): Citation[] {

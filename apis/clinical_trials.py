@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import ssl
 from typing import Any, Dict, List, Tuple
 from urllib.parse import urlencode
@@ -28,6 +29,20 @@ ZIP_CENTROIDS: Dict[str, Tuple[float, float]] = {
     "94103": (37.7726, -122.4099),
     "94158": (37.7576, -122.4726),
 }
+
+# ClinicalTrials.gov v2 often returns zero hits when query.locn is a bare US ZIP;
+# we still rank by distance using ZIP_CENTROIDS when the ZIP is known.
+_ZIP5_US = re.compile(r"^\d{5}$")
+
+
+def _zip_for_api_locn(z: str) -> str | None:
+    """Return a value safe for query.locn, or None to omit (national search)."""
+    z = (z or "").strip()
+    if not z:
+        return None
+    if _ZIP5_US.match(z):
+        return None
+    return z
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -74,8 +89,8 @@ def _parse_studies_payload(
             continue
         title = ids.get("briefTitle") or ids.get("officialTitle") or "Untitled study"
         status_mod = proto.get("statusModule") or {}
-        overall = status_mod.get("overallStatus") or ""
-        if str(overall).upper() != "RECRUITING":
+        overall = str(status_mod.get("overallStatus") or "").upper()
+        if overall != "RECRUITING":
             continue
 
         design = proto.get("designModule") or {}
@@ -151,12 +166,13 @@ def fetch_trials_via_http(zip_code: str, genes: List[str]) -> tuple[List[dict], 
     params: dict[str, str] = {
         "query.cond": "type 2 diabetes",
         "filter.overallStatus": "RECRUITING",
-        "pageSize": "25",
+        "pageSize": "40",
         "format": "json",
     }
     z = (zip_code or "").strip()
-    if z:
-        params["query.locn"] = z
+    locn = _zip_for_api_locn(z)
+    if locn:
+        params["query.locn"] = locn
     url = f"{BASE}?{urlencode(params)}"
     try:
         resp = requests.get(url, timeout=55, verify=certifi.where())
@@ -173,7 +189,8 @@ def fetch_trials_via_http(zip_code: str, genes: List[str]) -> tuple[List[dict], 
         meta["status"] = "empty"
         meta["detail"] = (
             "Live API returned no recruiting type-2-diabetes studies that mention "
-            f"the requested gene(s) {genes_norm} (and optional location filter)."
+            f"the requested gene(s) {genes_norm} (and optional location filter). "
+            "US 5-digit ZIP codes are searched nationally — distance is ranked when the ZIP is known."
         )
     return rows, meta
 
@@ -218,10 +235,17 @@ def fetch_trials(
             trials = trials2
             meta["status"] = "ok"
             meta["detail"] = (
-                "No recruiting trials matched the zip filter; "
+                "No trials matched the location filter; "
                 "retried without location and kept national results."
             )
             meta["zip_relaxed"] = True
+    logger.info(
+        "ClinicalTrials.gov fetch_trials: %d trial(s), genes=%s, zip=%r, status=%s",
+        len(trials),
+        gset,
+        z,
+        meta.get("status"),
+    )
     return {"trials": trials, "_meta": meta}
 
 
@@ -234,11 +258,12 @@ async def fetch_trials_async(zip_code: str, genes: List[str]) -> List[dict]:
             params = {
                 "query.cond": "type 2 diabetes",
                 "filter.overallStatus": "RECRUITING",
-                "pageSize": 25,
+                "pageSize": 40,
                 "format": "json",
             }
-            if zip_code:
-                params["query.locn"] = zip_code
+            locn = _zip_for_api_locn(zip_code.strip() if zip_code else "")
+            if locn:
+                params["query.locn"] = locn
             url = f"{BASE}?{urlencode(params)}"
             async with session.get(url) as resp:
                 resp.raise_for_status()

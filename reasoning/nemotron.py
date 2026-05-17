@@ -1059,7 +1059,7 @@ async def run_parallel_tool_plan(
             elif isinstance(result, list):
                 rows = [t for t in result if isinstance(t, dict)]
             for t in rows:
-                nid = t.get("nct_id")
+                nid = str(t.get("nct_id") or t.get("nctId") or "").strip()
                 if nid and nid not in seen_nct:
                     seen_nct.add(nid)
                     trials_acc.append(t)
@@ -1098,6 +1098,8 @@ async def run_parallel_tool_plan(
         )
     except asyncio.TimeoutError:
         _log("[nemotron] generate_brief timed out — returning partial brief")
+        from output.brief_builder import trial_evidence_from_findings
+
         brief = {
             "error": "Brief assembly timed out",
             "action_required": False,
@@ -1106,6 +1108,7 @@ async def run_parallel_tool_plan(
             "recommendation": {"switch_required": False, "rationale": []},
             "citations": [],
             "patient_summary": "Brief assembly timed out; retry or check server logs.",
+            **trial_evidence_from_findings(findings),
         }
         err_rec = _trace_step_record("generate_brief", {}, brief)
         err_rec["status"] = "error"
@@ -1200,7 +1203,7 @@ def _deterministic_plan(
                 elif isinstance(got, list):
                     rows = [t for t in got if isinstance(t, dict)]
                 for t in rows:
-                    nid = t.get("nct_id")
+                    nid = str(t.get("nct_id") or t.get("nctId") or "").strip()
                     if nid and nid not in seen_nct:
                         seen_nct.add(nid)
                         trials_acc.append(t)
@@ -1428,7 +1431,9 @@ def _summarize_result(name: str, result: Any) -> dict[str, Any]:
             rows = [t for t in result if isinstance(t, dict)]
         return {
             "matches": len(rows),
-            "ncts": [r.get("nct_id") for r in rows if isinstance(r, dict)][:6],
+            "ncts": [
+                (r.get("nct_id") or r.get("nctId")) for r in rows if isinstance(r, dict)
+            ][:6],
             "api_status": tmeta.get("status"),
         }
 

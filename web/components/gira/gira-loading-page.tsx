@@ -20,6 +20,92 @@ const STATUS_MESSAGES = [
 
 const ESTIMATED_TOOL_STEPS = 14
 
+/** ~30s typical run — time bar reaches cap over this window if traces are slow. */
+const PROGRESS_TIME_MS = 45_000
+const PROGRESS_TIME_CAP = 93
+
+/** Only SSE trace steps count toward % (bootstrap log lines use ids boot/flags/stream/done). */
+function isTraceStepEntry(e: { id: string; status: string }) {
+  return e.status === "complete" && e.id.startsWith("trace-")
+}
+
+/** Delay between revealing each completed row on the right (fills wait time). */
+const COMPLETE_REVEAL_MS = 680
+
+function countOkCompletes(list: AgentLogEntry[]) {
+  return list.filter((e) => e.status === "complete" && e.type !== "error").length
+}
+
+/**
+ * Show completed steps one-by-one (in order); always show non-complete rows and
+ * a trailing `running` row if present.
+ */
+function withStaggeredCompletes(entries: AgentLogEntry[], revealN: number): AgentLogEntry[] {
+  if (entries.length === 0) return entries
+  const last = entries[entries.length - 1]
+  const hasRunningTail = last.status === "running"
+  const core = hasRunningTail ? entries.slice(0, -1) : entries
+  const tail = hasRunningTail ? [last] : []
+
+  let shown = 0
+  const out: AgentLogEntry[] = []
+  for (const e of core) {
+    const isOkComplete = e.status === "complete" && e.type !== "error"
+    if (!isOkComplete) {
+      out.push(e)
+      continue
+    }
+    if (shown < revealN) {
+      out.push(e)
+      shown++
+    }
+  }
+  return [...out, ...tail]
+}
+
+/** Prefill the activity log so the panel never looks empty at t=0. */
+const LOADING_PAD_PREFIX = "pad-"
+
+const LOADING_PAD_ENTRIES: AgentLogEntry[] = [
+  {
+    id: `${LOADING_PAD_PREFIX}session`,
+    timestamp: "00:00",
+    tool: "system",
+    label: "Session",
+    detail: "Clinician workspace connected — starting secure pipeline.",
+    status: "complete",
+    type: "info",
+  },
+  {
+    id: `${LOADING_PAD_PREFIX}context`,
+    timestamp: "00:00",
+    tool: "get_patient_intake",
+    label: "Patient context",
+    detail: "Resolving intake, meds, and PGx panel for this run.",
+    status: "complete",
+    type: "info",
+  },
+  {
+    id: `${LOADING_PAD_PREFIX}evidence`,
+    timestamp: "00:00",
+    tool: "fetch_clinvar",
+    label: "Evidence APIs",
+    detail: "Preparing ClinVar, PubMed, CPIC, ClinicalTrials.gov, and RxNorm queries.",
+    status: "complete",
+    type: "info",
+  },
+]
+
+const LOADING_PAD_TAIL_RUNNING: AgentLogEntry = {
+  id: `${LOADING_PAD_PREFIX}queue`,
+  timestamp: "00:00",
+  tool: "nemotron_turn",
+  label: "Agent queue",
+  detail: "Handing off to GIRA — live tool calls will stream in as they finish.",
+  status: "running",
+  type: "info",
+}
+
 interface GiraLoadingPageProps {
   patientName?: string
   patientId?: string
@@ -43,6 +129,7 @@ export default function GiraLoadingPage({
 }: GiraLoadingPageProps) {
   const [statusIndex, setStatusIndex] = useState(0)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [revealCompletes, setRevealCompletes] = useState(0)
   const startTimeRef = useMemo(() => Date.now(), [])
 
   useEffect(() => {
@@ -67,14 +154,55 @@ export default function GiraLoadingPage({
     return `${String(min).padStart(2, "0")}:${String(s).padStart(2, "0")}`
   }, [])
 
+  const isActive = isRunning && !isComplete
+
+  /** Full activity list (left progress + running chips use this unfiltered). */
+  const displayEntriesFull = useMemo(() => {
+    if (!isActive || entries.length >= 6) return entries
+    const pad = [...LOADING_PAD_ENTRIES]
+    if (!entries.some((e) => e.status === "running")) {
+      pad.push(LOADING_PAD_TAIL_RUNNING)
+    }
+    return [...pad, ...entries]
+  }, [entries, isActive])
+
+  const totalOkCompletes = useMemo(() => countOkCompletes(displayEntriesFull), [displayEntriesFull])
+
+  useEffect(() => {
+    if (isRunning && entries.length === 0) {
+      setRevealCompletes(0)
+    }
+  }, [isRunning, entries.length])
+
+  useEffect(() => {
+    if (isComplete || !isRunning) {
+      setRevealCompletes(totalOkCompletes)
+      return
+    }
+    if (revealCompletes >= totalOkCompletes) return
+    const t = window.setTimeout(() => {
+      setRevealCompletes((c) => Math.min(c + 1, totalOkCompletes))
+    }, COMPLETE_REVEAL_MS)
+    return () => window.clearTimeout(t)
+  }, [isComplete, isRunning, totalOkCompletes, revealCompletes])
+
+  /** Right panel: completed tasks appear one-by-one while waiting. */
+  const displayEntries = useMemo(
+    () => withStaggeredCompletes(displayEntriesFull, isComplete ? totalOkCompletes : revealCompletes),
+    [displayEntriesFull, revealCompletes, totalOkCompletes, isComplete]
+  )
+
   const computedProgress = useMemo(() => {
     if (isComplete) return 100
     if (progressProp != null) return progressProp
-    const done = entries.filter((e) => e.status === "complete").length
-    return Math.min(95, Math.round((done / ESTIMATED_TOOL_STEPS) * 100))
-  }, [entries, isComplete, progressProp])
-
-  const isActive = isRunning && !isComplete
+    const completedTraceSteps = displayEntriesFull.filter((e) => isTraceStepEntry(e)).length
+    const stepPct = Math.min(96, (completedTraceSteps / ESTIMATED_TOOL_STEPS) * 100)
+    const timePct = Math.min(
+      PROGRESS_TIME_CAP,
+      (elapsedMs / PROGRESS_TIME_MS) * PROGRESS_TIME_CAP
+    )
+    return Math.round(Math.min(99, Math.max(stepPct, timePct)))
+  }, [displayEntriesFull, elapsedMs, isComplete, progressProp])
 
   return (
     <div className="h-dvh w-full flex flex-col bg-[#FAFAFC] overflow-hidden">
@@ -156,19 +284,16 @@ export default function GiraLoadingPage({
                   className="h-full rounded-full"
                   style={{ background: "linear-gradient(90deg, #5B3FD4, #1A9E6E)" }}
                   animate={{ width: `${computedProgress}%` }}
-                  transition={{ duration: 0.5, ease: "easeOut" }}
+                  transition={{ duration: 0.22, ease: "linear" }}
                 />
               </div>
-              <div className="flex justify-between mt-2">
+              <div className="flex justify-center mt-2">
                 <span className="text-[10px] font-mono text-gira-muted">{computedProgress}%</span>
-                <span className="text-[10px] font-mono text-gira-muted">
-                  {entries.filter((e) => e.status === "complete").length} steps logged
-                </span>
               </div>
             </div>
 
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2 max-w-sm mx-auto">
-              {entries
+              {displayEntriesFull
                 .filter((e) => e.status === "running")
                 .slice(-3)
                 .map((e) => (
@@ -211,7 +336,7 @@ export default function GiraLoadingPage({
         </div>
 
         <div className="lg:w-[420px] xl:w-[460px] border-t lg:border-t-0 lg:border-l border-[#E8E6F0] bg-white flex flex-col overflow-hidden min-h-[320px] lg:min-h-0 flex-1 lg:flex-none shadow-[-8px_0_24px_rgba(13,11,20,0.04)]">
-          <GiraAgentLog entries={entries} running={isActive} className="flex-1 min-h-0" />
+          <GiraAgentLog entries={displayEntries} running={isActive} className="flex-1 min-h-0" />
         </div>
       </div>
 

@@ -135,7 +135,7 @@ export default function BriefInferencePanel({
     return () => {
       cancelled = true
     }
-  }, [mayLoad, fetchBrief, patientId])
+  }, [mayLoad, fetchBrief, patientId, initialBrief, hydrate, loadPatientMeta])
 
   const shell = embedded ? "space-y-6" : "mx-auto min-h-0 max-w-4xl space-y-6"
 
